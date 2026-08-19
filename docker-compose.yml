@@ -1,0 +1,24 @@
+x-common-volumes: &common-volumes
+  - ./:/MoneyPrinterTurbo
+
+services:
+  webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: "video-loom-webui"
+    ports:
+      - "0.0.0.0:8501:8080"
+    command: [ "python3", "main.py" ]
+    volumes: *common-volumes
+    restart: always
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: "video-loom-api"
+    ports:
+      - "127.0.0.1:8080:8080"
+    command: [ "python3", "main.py" ]
+    volumes: *common-volumes
+    restart: always

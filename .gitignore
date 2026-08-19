@@ -1,0 +1,30 @@
+# Local configuration and credentials
+config.toml
+.env
+.env.*
+!.env.example
+
+# Runtime data and generated media
+storage/
+*.log
+
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+node_modules/
+
+# IDE and operating-system files
+.idea/
+.vscode/
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
