@@ -277,7 +277,10 @@ project_description = _cfg.get(
     "<a href='https://github.com/harry0703/MoneyPrinterTurbo'>https://github.com/harry0703/MoneyPrinterTurbo</a>",
 )
 project_version = _cfg.get("project_version", "1.3.2")
-reload_debug = False
+# 本地开发热重载：config.toml 中 reload_debug = true，或环境变量 MPT_RELOAD_DEBUG=1
+reload_debug = bool(_cfg.get("reload_debug", False)) or os.getenv(
+    "MPT_RELOAD_DEBUG", ""
+).strip().lower() in {"1", "true", "yes", "on"}
 
 app["redis_host"] = os.getenv(
     "MPT_APP_REDIS_HOST",

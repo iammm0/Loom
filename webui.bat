@@ -1,7 +1,10 @@
 @echo off
 setlocal
-set "CURRENT_DIR=%CD%"
+set "CURRENT_DIR=%~dp0"
+set "CURRENT_DIR=%CURRENT_DIR:~0,-1%"
 set "PYTHONPATH=%CURRENT_DIR%"
+set "UV_PROJECT_ENVIRONMENT=%CURRENT_DIR%\.venv-video-loom"
+set "VENV_PY=%CURRENT_DIR%\.venv-video-loom\Scripts\python.exe"
 
 if not defined MPT_WEBUI_HOST set "MPT_WEBUI_HOST=127.0.0.1"
 if not defined MPT_API_PORT set "MPT_API_PORT=8080"
@@ -21,12 +24,12 @@ if exist "%CURRENT_DIR%\webui\package.json" (
 
 echo ***** WebUI address: http://%MPT_WEBUI_HOST%:%MPT_API_PORT% *****
 
-if exist "%CURRENT_DIR%\.venv\Scripts\python.exe" (
-    "%CURRENT_DIR%\.venv\Scripts\python.exe" "%CURRENT_DIR%\main.py"
+if exist "%VENV_PY%" (
+    "%VENV_PY%" "%CURRENT_DIR%\main.py"
     goto :eof
 )
-if exist "%CURRENT_DIR%\lib\python\python.exe" (
-    "%CURRENT_DIR%\lib\python\python.exe" "%CURRENT_DIR%\main.py"
+if exist "%CURRENT_DIR%\.venv\Scripts\python.exe" (
+    "%CURRENT_DIR%\.venv\Scripts\python.exe" "%CURRENT_DIR%\main.py"
     goto :eof
 )
 where uv >nul 2>nul

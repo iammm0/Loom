@@ -2,6 +2,8 @@
 
 CURRENT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 export PYTHONPATH="$CURRENT_DIR${PYTHONPATH:+:$PYTHONPATH}"
+export UV_PROJECT_ENVIRONMENT="$CURRENT_DIR/.venv-video-loom"
+VENV_PY="$CURRENT_DIR/.venv-video-loom/bin/python"
 
 MPT_WEBUI_HOST="${MPT_WEBUI_HOST:-127.0.0.1}"
 MPT_API_PORT="${MPT_API_PORT:-8080}"
@@ -17,7 +19,9 @@ fi
 
 echo "***** WebUI address: http://$MPT_WEBUI_HOST:$MPT_API_PORT *****"
 
-if [ -x "$CURRENT_DIR/.venv/bin/python" ]; then
+if [ -x "$VENV_PY" ]; then
+  "$VENV_PY" "$CURRENT_DIR/main.py"
+elif [ -x "$CURRENT_DIR/.venv/bin/python" ]; then
   "$CURRENT_DIR/.venv/bin/python" "$CURRENT_DIR/main.py"
 elif command -v uv >/dev/null 2>&1; then
   uv run python "$CURRENT_DIR/main.py"

@@ -10,6 +10,7 @@ storage/
 
 # Python environments and caches
 .venv/
+.venv-video-loom/
 venv/
 __pycache__/
 *.py[cod]

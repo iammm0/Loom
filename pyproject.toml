@@ -6,9 +6,9 @@ requires = ["hatchling>=1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
-name = "moneyprinterturbo"
+name = "video-loom"
 version = "1.3.2"
-description = "Generate short videos from prompts, local assets, subtitles, and TTS."
+description = "Loom：短视频剪辑 Agent 平台（脚本、素材、配音字幕与成片导出）。"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
