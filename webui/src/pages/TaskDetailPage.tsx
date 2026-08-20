@@ -1,28 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { api } from "../api";
-
-type StreamStep = {
-  key: string;
-  label: string;
-  state: string;
-  elapsed_label?: string;
-  meta?: string;
-};
-
-type TaskDetail = {
-  task_id: string;
-  status?: string;
-  stage?: string;
-  progress?: number;
-  error?: string;
-  video_subject?: string;
-  videos?: string[];
-  stream?: {
-    headline?: string;
-    steps?: StreamStep[];
-  };
-};
+import { AgentSteps } from "../components/AgentSteps";
+import type { TaskDetail } from "../types";
+import { statusLabel } from "../types";
 
 export function TaskDetailPage() {
   const { taskId } = useParams({ from: "/tasks/$taskId" });
@@ -45,42 +26,40 @@ export function TaskDetailPage() {
   });
   const task = query.data;
   const video = task?.videos?.[0];
+  const prompt = task?.stream?.headline || task?.video_subject || taskId;
 
   return (
     <section className="page">
-      <div className="card">
-        <Link to="/tasks">返回任务</Link>
-        <p>{task?.stream?.headline || task?.video_subject || taskId}</p>
-        <span className="status">{task?.status || ""}</span>
-        <div className="toolbar">
-          <button className="ghost" onClick={() => cancel.mutate()}>
-            取消
-          </button>
-          <button className="ghost" onClick={() => retry.mutate()}>
-            重试
-          </button>
-        </div>
-        {task?.error ? <div className="error">{task.error}</div> : null}
+      <div className="top-actions">
+        <Link className="linkish" to="/tasks">
+          返回
+        </Link>
+        <span className="status">{statusLabel(task?.status)}</span>
+        <span className="spacer" />
+        <button className="ghost" onClick={() => cancel.mutate()}>
+          取消
+        </button>
+        <button className="ghost" onClick={() => retry.mutate()}>
+          重试
+        </button>
       </div>
-      <div className="card steps">
-        {(task?.stream?.steps || []).map((step) => (
-          <div className={`step ${step.state}`} key={step.key}>
-            <span>
-              {step.label}
-              {step.meta ? ` · ${step.meta}` : ""}
-            </span>
-            <span className="muted">{step.elapsed_label || step.state}</span>
-          </div>
-        ))}
-      </div>
-      {video ? (
-        <div className="card">
-          <video src={video} controls />
-          <a className="ghost" href={video} download>
-            下载
-          </a>
+      <div className="agent-inner fill">
+        <div className="user-bubble">{prompt}</div>
+        <div className="agent-block">
+          <AgentSteps steps={task?.stream?.steps} />
+          {task?.error ? <div className="error">{task.error}</div> : null}
+          {video ? (
+            <div className="artifact">
+              <video src={video} controls />
+              <div className="artifact-bar">
+                <a className="ghost" href={video} download>
+                  下载
+                </a>
+              </div>
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      </div>
     </section>
   );
 }

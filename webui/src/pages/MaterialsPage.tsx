@@ -1,12 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  createColumnHelper,
-  getCoreRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { api } from "../api";
-import { DataTable } from "../components/DataTable";
+import { statusLabel } from "../types";
 
 type Material = {
   material_id: string;
@@ -18,10 +13,7 @@ type Material = {
 
 type MaterialList = {
   materials: Material[];
-  total: number;
 };
-
-const columnHelper = createColumnHelper<Material>();
 
 export function MaterialsPage() {
   const queryClient = useQueryClient();
@@ -54,46 +46,9 @@ export function MaterialsPage() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["materials"] }),
   });
 
-  const columns = useMemo(
-    () => [
-      columnHelper.accessor((row) => row.name || row.filename || row.material_id, {
-        id: "name",
-        header: "文件",
-      }),
-      columnHelper.accessor("status", { header: "状态" }),
-      columnHelper.accessor("tags", {
-        header: "标签",
-        cell: (info) => (info.getValue() || []).join("、"),
-      }),
-      columnHelper.display({
-        id: "actions",
-        header: "",
-        cell: ({ row }) => (
-          <div className="toolbar">
-            <button className="ghost" onClick={() => confirm.mutate(row.original.material_id)}>
-              确认
-            </button>
-            <button className="ghost" onClick={() => analyze.mutate(row.original.material_id)}>
-              重新打标
-            </button>
-            <button className="danger" onClick={() => remove.mutate(row.original.material_id)}>
-              删除
-            </button>
-          </div>
-        ),
-      }),
-    ],
-    [analyze, confirm, remove],
-  );
-  const table = useReactTable({
-    data: query.data?.materials || [],
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-  });
-
   return (
     <section className="page">
-      <div className="card toolbar">
+      <div className="toolbar">
         <input
           placeholder="搜索"
           value={queryText}
@@ -109,8 +64,28 @@ export function MaterialsPage() {
           />
         </label>
       </div>
-      <div className="card">
-        <DataTable table={table} empty="暂无素材" />
+      <div className="row-list">
+        {(query.data?.materials || []).map((item) => (
+          <div className="row-item" key={item.material_id}>
+            <span className="row-title">
+              {item.name || item.filename || item.material_id}
+              {item.tags?.length ? <span className="muted"> · {item.tags.join("、")}</span> : null}
+            </span>
+            <span className="status">{statusLabel(item.status) || item.status}</span>
+            <div className="row-actions">
+              <button className="ghost" onClick={() => confirm.mutate(item.material_id)}>
+                确认
+              </button>
+              <button className="ghost" onClick={() => analyze.mutate(item.material_id)}>
+                打标
+              </button>
+              <button className="danger" onClick={() => remove.mutate(item.material_id)}>
+                删除
+              </button>
+            </div>
+          </div>
+        ))}
+        {!query.data?.materials?.length ? <div className="muted">暂无素材</div> : null}
       </div>
     </section>
   );

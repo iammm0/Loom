@@ -17,15 +17,15 @@ type Billing = {
 
 const columnHelper = createColumnHelper<BillingRow>();
 const COLUMNS = [
-  "账单记录时间",
-  "作品主题",
-  "分镜",
-  "模型",
-  "规格",
-  "请求时长（秒）",
-  "状态",
-  "金额（元）",
-  "计算依据",
+  ["账单记录时间", "时间"],
+  ["作品主题", "主题"],
+  ["分镜", "分镜"],
+  ["模型", "模型"],
+  ["规格", "规格"],
+  ["请求时长（秒）", "时长"],
+  ["状态", "状态"],
+  ["金额（元）", "金额"],
+  ["计算依据", "依据"],
 ] as const;
 
 export function BillingPage() {
@@ -35,10 +35,10 @@ export function BillingPage() {
   });
   const columns = useMemo(
     () =>
-      COLUMNS.map((key) =>
+      COLUMNS.map(([key, header]) =>
         columnHelper.accessor((row) => row[key], {
           id: key,
-          header: key.replace("（元）", "").replace("（秒）", ""),
+          header,
         }),
       ),
     [],
@@ -50,11 +50,9 @@ export function BillingPage() {
   });
 
   return (
-    <section className="page">
-      <div className="card">
-        <p>合计 {query.data?.total_cost_cny ?? 0} 元</p>
-        <DataTable table={table} empty="暂无账单" />
-      </div>
+    <section className="page wide">
+      <div className="muted">合计 {query.data?.total_cost_cny ?? 0}</div>
+      <DataTable table={table} empty="暂无账单" />
     </section>
   );
 }

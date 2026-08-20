@@ -15,7 +15,7 @@ from app.config.config import (
 from app.controllers.v1.base import new_router
 from app.models.llm_provider import LLM_PROVIDER_REGISTRY
 from app.models.schema import SettingsUpdateRequest
-from app.services import billing, task_store, voice
+from app.services import billing, seedance as seedance_service, task_store, voice
 from app.utils import utils
 
 router = new_router()
@@ -154,6 +154,10 @@ def get_workspace_options(_request: Request):
             "providers": _provider_options(),
             "voice_groups": _voice_groups(),
             "fonts": _list_fonts(),
+            "seedance_models": [
+                {"id": item["id"], "label": item["label"]}
+                for item in seedance_service.configured_model_options()
+            ],
         },
     )
 

@@ -19,6 +19,8 @@ def test_workspace_options_include_providers_and_voices():
     assert response["data"]["providers"]
     assert any(item["id"] == "moonshot" for item in response["data"]["providers"])
     assert response["data"]["voice_groups"]
+    assert response["data"]["seedance_models"]
+    assert any(item["id"] for item in response["data"]["seedance_models"])
 
 
 def test_update_settings_persists_app_and_seedance():

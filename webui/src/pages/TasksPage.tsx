@@ -1,31 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  createColumnHelper,
-  getCoreRowModel,
-  useReactTable,
-} from "@tanstack/react-table";
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { api } from "../api";
-import { DataTable } from "../components/DataTable";
+import { statusLabel } from "../types";
 
 type Task = {
   task_id: string;
   status?: string;
-  stage?: string;
-  progress?: number;
   video_subject?: string;
   created_at?: string;
 };
 
 type TaskList = {
   tasks: Task[];
-  total: number;
-  page: number;
-  page_size: number;
 };
 
-const columnHelper = createColumnHelper<Task>();
+function when(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+}
 
 export function TasksPage() {
   const queryClient = useQueryClient();
@@ -43,87 +38,52 @@ export function TasksPage() {
       setSelected({});
     },
   });
-
-  const columns = useMemo(
-    () => [
-      columnHelper.display({
-        id: "select",
-        header: "",
-        cell: ({ row }) => (
-          <input
-            type="checkbox"
-            checked={Boolean(selected[row.original.task_id])}
-            onChange={(event) =>
-              setSelected((current) => ({
-                ...current,
-                [row.original.task_id]: event.target.checked,
-              }))
-            }
-          />
-        ),
-      }),
-      columnHelper.accessor("video_subject", {
-        header: "主题",
-        cell: (info) => info.getValue() || info.row.original.task_id,
-      }),
-      columnHelper.accessor("status", { header: "状态" }),
-      columnHelper.accessor("stage", { header: "阶段" }),
-      columnHelper.accessor("progress", {
-        header: "进度",
-        cell: (info) => `${info.getValue() || 0}%`,
-      }),
-      columnHelper.accessor("created_at", { header: "时间" }),
-      columnHelper.display({
-        id: "open",
-        header: "",
-        cell: ({ row }) => (
-          <Link to="/tasks/$taskId" params={{ taskId: row.original.task_id }}>
-            详情
-          </Link>
-        ),
-      }),
-    ],
-    [selected],
-  );
-
-  const table = useReactTable({
-    data: query.data?.tasks || [],
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-  });
   const selectedIds = Object.entries(selected)
     .filter(([, checked]) => checked)
     .map(([id]) => id);
 
   return (
     <section className="page">
-      <div className="card">
+      {selectedIds.length ? (
         <div className="toolbar">
-          <button
-            className="ghost"
-            disabled={!selectedIds.length}
-            onClick={() => action.mutate({ action: "cancel", task_ids: selectedIds })}
-          >
+          <button className="ghost" onClick={() => action.mutate({ action: "cancel", task_ids: selectedIds })}>
             取消
           </button>
-          <button
-            className="ghost"
-            disabled={!selectedIds.length}
-            onClick={() => action.mutate({ action: "retry", task_ids: selectedIds })}
-          >
+          <button className="ghost" onClick={() => action.mutate({ action: "retry", task_ids: selectedIds })}>
             重试
           </button>
-          <button
-            className="danger"
-            disabled={!selectedIds.length}
-            onClick={() => action.mutate({ action: "delete", task_ids: selectedIds })}
-          >
+          <button className="danger" onClick={() => action.mutate({ action: "delete", task_ids: selectedIds })}>
             删除
           </button>
         </div>
-        <DataTable table={table} empty="暂无任务" />
-        {query.error ? <div className="error">{query.error.message}</div> : null}
+      ) : null}
+      <div className="row-list">
+        {(query.data?.tasks || []).map((task) => (
+          <div className="row-link" key={task.task_id}>
+            <input
+              type="checkbox"
+              checked={Boolean(selected[task.task_id])}
+              onChange={(event) =>
+                setSelected((current) => ({
+                  ...current,
+                  [task.task_id]: event.target.checked,
+                }))
+              }
+            />
+            <Link
+              className="row-title"
+              to="/tasks/$taskId"
+              params={{ taskId: task.task_id }}
+            >
+              {task.video_subject || task.task_id}
+            </Link>
+            <span className="status">{statusLabel(task.status)}</span>
+            <span className="muted">{when(task.created_at)}</span>
+          </div>
+        ))}
+        {!query.data?.tasks?.length ? <div className="muted">暂无任务</div> : null}
       </div>
+      {query.error ? <div className="error">{query.error.message}</div> : null}
     </section>
   );
 }
