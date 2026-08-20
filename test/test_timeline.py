@@ -30,7 +30,7 @@ def test_tool_registry_exposes_production_and_edit_tools():
     assert "search_online_materials" in names
     assert "probe_media" in names
     assert "export_timeline" in names
-    assert "rough_cut_silence" in names
+    assert "rough_cut_silence" not in names
 
 
 def test_trim_tool_requires_source_and_duration():

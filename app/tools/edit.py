@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from app.models.schema import VideoAspect
@@ -169,81 +168,6 @@ def apply_transition(ctx: ToolContext) -> ToolResult:
     return ToolResult(ok=True, data={"path": output}, artifacts=[output])
 
 
-def _silence_ranges(source: str) -> list[tuple[float, float]]:
-    from app.tools.ffmpeg_cmd import ffmpeg_binary
-    import subprocess
-
-    result = subprocess.run(
-        [
-            ffmpeg_binary(),
-            "-i",
-            source,
-            "-af",
-            "silencedetect=noise=-30dB:d=0.5",
-            "-f",
-            "null",
-            "-",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    text = result.stderr or ""
-    starts = [float(item) for item in re.findall(r"silence_start: ([0-9.]+)", text)]
-    ends = [float(item) for item in re.findall(r"silence_end: ([0-9.]+)", text)]
-    ranges = []
-    for index, start in enumerate(starts):
-        end = ends[index] if index < len(ends) else None
-        if end is None:
-            continue
-        ranges.append((start, end))
-    return ranges
-
-
-def rough_cut_silence(ctx: ToolContext) -> ToolResult:
-    source = str(ctx.extras.get("source") or "")
-    if not source:
-        return ToolResult(ok=False, error="rough cut requires source")
-    try:
-        media = probe_media(source)
-        duration = float(media.get("duration") or 0)
-        silences = _silence_ranges(source)
-    except Exception as exc:
-        return ToolResult(ok=False, error=str(exc)[:1000])
-    keep: list[tuple[float, float]] = []
-    cursor = 0.0
-    for start, end in silences:
-        if start - cursor >= 0.4:
-            keep.append((cursor, start))
-        cursor = end
-    if duration - cursor >= 0.4:
-        keep.append((cursor, duration))
-    if not keep:
-        return ToolResult(ok=True, data={"path": source, "skipped": True})
-    parts = []
-    for index, (start, end) in enumerate(keep):
-        part = _task_output(ctx, f"keep-{index}.mp4")
-        trimmed = trim_clip(
-            ToolContext(
-                task_id=ctx.task_id,
-                params=ctx.params,
-                extras={"source": source, "start": start, "duration": end - start, "output": part},
-            )
-        )
-        if trimmed.ok:
-            parts.append(part)
-    if not parts:
-        return ToolResult(ok=False, error="rough cut produced no clips")
-    output = str(ctx.extras.get("output") or _task_output(ctx, "rough-cut.mp4"))
-    return concat_clips(
-        ToolContext(
-            task_id=ctx.task_id,
-            params=ctx.params,
-            extras={"clips": parts, "output": output},
-        )
-    )
-
-
 def export_timeline(ctx: ToolContext) -> ToolResult:
     from app.services import task as tm
 
@@ -299,6 +223,5 @@ EDIT_TOOLS = [
     FunctionTool("mix_audio", "混合旁白、BGM 并输出成片", mix_audio),
     FunctionTool("burn_subtitles", "烧录字幕", burn_subtitles),
     FunctionTool("apply_transition", "按导演参数拼接并加转场", apply_transition),
-    FunctionTool("rough_cut_silence", "按静音做保守粗剪", rough_cut_silence),
     FunctionTool("export_timeline", "把时间轴编译成最终视频", export_timeline),
 ]

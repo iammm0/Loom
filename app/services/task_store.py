@@ -1684,9 +1684,7 @@ class TaskStore:
                 or self.get_task(entry.name)
             ):
                 continue
-            finals = sorted(entry.glob("final-*.mp4")) + sorted(
-                entry.glob("rough-cut-*.mp4")
-            )
+            finals = sorted(entry.glob("final-*.mp4"))
             script_data = _json_load(
                 (entry / "script.json").read_text(encoding="utf-8")
                 if (entry / "script.json").is_file()

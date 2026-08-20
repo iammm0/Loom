@@ -475,14 +475,6 @@ def refine_node(state: AgentState) -> AgentState:
             break
         run_tool("probe_media", _ctx(state, source=source))
         steps += 1
-    if config.app.get("rough_cut_enabled") and materials and steps < 8:
-        rough = run_tool(
-            "rough_cut_silence",
-            _ctx(state, source=materials[0], output=path.join(utils.task_dir(str(state["task_id"])), "edits", "rough-cut.mp4")),
-        )
-        if rough.ok and rough.data.get("path") and not rough.data.get("skipped"):
-            materials = [str(rough.data["path"]), *materials[1:]]
-            state = {**state, "materials": materials}
     return state
 
 
