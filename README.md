@@ -1,82 +1,105 @@
-# AutoEditing
+# video-loom
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](pyproject.toml)
 [![API](https://img.shields.io/badge/API-FastAPI-009688.svg)](main.py)
-[![WebUI](https://img.shields.io/badge/WebUI-TanStack-5c6ac4.svg)](webui/src/main.tsx)
+[![WebUI](https://img.shields.io/badge/WebUI-React%20%2F%20TanStack-5c6ac4.svg)](webui/src/main.tsx)
 
-AutoEditing 是一个视频剪辑 Agent 平台。它围绕主题生成脚本文案、按分镜准备素材、合成配音与字幕、接入剪辑工具并导出成片。主链路由 LangGraph 编排，缺素材时自动走素材库、在线检索和 Seedance，不再等待人工上传确认。
+**Loom** 是面向短视频生产的剪辑 Agent 平台：输入主题或文案，自动完成脚本、导演规划、配音字幕、分镜素材补齐与成片导出。
 
-本仓库基于 [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) 继续二次开发。
+主链路由 **LangGraph** 编排，业务能力拆成可替换的 **tool**；缺镜时依次走素材库、在线检索和 Seedance，不再卡在人工上传确认。
 
-## 核心能力
+基于 [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) 二次开发。
 
-- AI 脚本生成：根据主题、语言、段落数量和附加要求生成短视频文案。
-- AI 导演规划：推断段落结构、配音速度、镜头节奏、转场和配乐参数。
-- 素材自动补齐：先匹配素材库和在线来源，缺镜时自动调用 Seedance；补不齐则任务失败。
-- 配音与字幕：TTS 配音，以及 Edge/Whisper 字幕链路。
-- 剪辑 tool 层：探测、裁剪、拼接、缩放、变速、字幕、混音、静音粗剪、时间轴导出。
-- 剪辑任务：列表、详情、批量操作、取消、重试、删除、预览和下载。
-- 素材管理：上传、检索、打标、标签管理和分镜自动入库。
-- FastAPI 接口与 TanStack WebUI 工作台。
+---
+
+## 能做什么
+
+| 能力 | 说明 |
+| --- | --- |
+| 自动剪辑 | 主题 → 文案 → 配音/字幕 → 分镜素材 → 时间轴 → 成片 |
+| 导演规划 | 推断段落结构、配音节奏、镜头与转场参数 |
+| 素材补齐 | `local_first`：库内匹配 + 在线检索，缺镜自动 Seedance；`ai_generated`：按分镜直接生成 |
+| 任务管理 | 列表、详情、取消、重试、删除、预览与下载 |
+| 素材与标签 | 上传、检索、打标、标签管理；分镜可自动入库 |
+| 账单 | Seedance 用量与费用汇总 |
+| 工作台 | React / TanStack WebUI + FastAPI |
+
+---
 
 ## 技术栈
 
+- **后端**：Python 3.11+、FastAPI、Uvicorn、LangGraph
+- **前端**：Vite、React、TypeScript；TanStack Router / Query / Table / Form
+- **媒体**：MoviePy、FFmpeg、Edge TTS、faster-whisper
+- **模型**：LiteLLM / OpenAI 兼容接口（Moonshot、OpenAI、Gemini、DeepSeek 等）
+- **可选**：Redis、Docker Compose、TwelveLabs（语义素材排序）
+
+---
+
+## 环境要求
+
 - Python 3.11+
-- FastAPI / Uvicorn
-- LangGraph
-- Vite / React / TypeScript
-- TanStack Router、Query、Table、Form
-- MoviePy / FFmpeg
-- faster-whisper / Edge TTS
-- LiteLLM / OpenAI-compatible API
-- Redis，可选
-- Docker / Docker Compose
+- [uv](https://github.com/astral-sh/uv)（推荐，用 `uv.lock` 固定依赖）
+- FFmpeg
+- Node.js 18+（构建 WebUI）
+- 可用的 LLM、TTS；需要自动补镜时配置 Seedance
 
-## 系统要求
-
-- Python 3.11 或更高版本。
-- [uv](https://github.com/astral-sh/uv)，推荐用于同步依赖。
-- FFmpeg。
-- Node.js 18+，用于构建 WebUI。
-- 可用的大模型、TTS；缺失分镜在配置 Seedance 后会自动生成。
+---
 
 ## 快速开始
 
 ```bash
 cp config.example.toml config.toml
+# 编辑 config.toml：填写 llm_provider、API Key、material_strategy 等
+
 uv sync --frozen
-./webui.sh
-```
-
-Windows：
-
-```bat
+./webui.sh          # Linux / macOS
+# 或 Windows：
 webui.bat
 ```
 
-工作台默认地址：
-
-```text
-http://127.0.0.1:8080
-```
-
-API 文档：
-
-```text
-http://127.0.0.1:8080/docs
-```
-
-开发时也可以分开启动：
+本地开发（API 热重载 + 前端 HMR）推荐：
 
 ```bash
+# 虚拟环境目录为 .venv-video-loom（由 UV_PROJECT_ENVIRONMENT / .env 指定）
+cp .env.example .env
+uv sync
+
+# Windows 一键开两个窗口：
+dev.bat
+
+# 或手动：
+# 终端 1
+.\.venv-video-loom\Scripts\python.exe main.py
+# 终端 2
+cd webui && npm run dev
+```
+
+启动后：
+
+| 入口 | 地址 |
+| --- | --- |
+| 工作台 | http://127.0.0.1:8080 |
+| API 文档 | http://127.0.0.1:8080/docs |
+
+脚本会在需要时安装前端依赖并构建 `webui/dist`，再由 FastAPI 托管前后端。
+
+### 前后端分开开发
+
+```bash
+# 终端 1：API
 uv run python main.py
+
+# 终端 2：前端（热更新，代理到 8080）
 cd webui && npm install && npm run dev
 ```
 
-前端开发地址为 `http://127.0.0.1:8501`，并代理到 API `8080`。
+前端开发地址：http://127.0.0.1:8501
 
-## Docker 运行
+---
+
+## Docker
 
 ```bash
 docker compose up --build
@@ -84,61 +107,99 @@ docker compose up --build
 
 | 服务 | 地址 |
 | --- | --- |
-| WebUI | `http://127.0.0.1:8501` |
-| API | `http://127.0.0.1:8080` |
-| API 文档 | `http://127.0.0.1:8080/docs` |
+| WebUI（映射） | http://127.0.0.1:8501 |
+| API | http://127.0.0.1:8080 |
+| API 文档 | http://127.0.0.1:8080/docs |
 
-## 配置说明
+请将本地 `config.toml`、`storage/` 挂载进容器（见 `docker-compose.yml`）。
+
+---
+
+## 配置要点
 
 ```bash
 cp config.example.toml config.toml
 ```
 
-不要提交本地 `config.toml`。常用项包括 `llm_provider`、各服务 API Key、`material_strategy`、`rough_cut_enabled`。
+**不要提交**本地 `config.toml`（可能含密钥）。
 
-选择 `ai_generated` 时，Agent 会规划分镜并自动生成缺失镜头，不再停在上传关卡。选择 `local_first` 时先匹配素材库和在线素材，仍缺镜则自动生成。
+常用项：
 
-## 基本使用流程
+| 配置 | 作用 |
+| --- | --- |
+| `llm_provider` | 大模型提供商（如 `moonshot`、`openai`、`gemini`） |
+| 各 `*_api_key` | LLM / 素材站 / Seedance 等密钥 |
+| `material_strategy` | `local_first` 或 `ai_generated` |
+| `video_sources` | 在线素材源，如 pexels、pixabay、coverr |
+| `listen_host` / `listen_port` | API 监听地址，默认 `8080` |
+| `reload_debug` | 本地开发热重载（Uvicorn）；生产请保持 `false` |
 
-1. 复制配置并填写 LLM、TTS、Seedance 等密钥。
-2. 启动工作台，打开自动剪辑页。
+素材策略：
+
+- **`local_first`**：优先素材库与在线检索，仍缺镜则自动 Seedance；补不齐则任务失败。
+- **`ai_generated`**：按分镜规划直接生成镜头，不依赖上传关卡。
+
+---
+
+## 使用流程
+
+1. 复制并填写 `config.toml`。
+2. 启动工作台，打开 **自动剪辑**。
 3. 输入主题或文案，创建任务。
-4. Agent 自动完成文案、配音、分镜、剪辑和导出。
-5. 在剪辑任务中预览、下载、重试或删除。
+4. Agent 依次完成：预检 → 文案 → 导演 → 分镜 → 旁白 → 字幕 → 素材 → 时间轴 → 导出。
+5. 在 **任务** 中预览、下载、重试或删除；在 **素材 / 标签 / 账单 / 设置** 中管理资源与配置。
+
+---
+
+## Agent 流水线
+
+```text
+preflight → script → director → scenes → audio → subtitle
+         → materials → timeline → refine → export
+```
+
+生产类 tool（文案、导演、分镜、TTS、字幕、素材匹配、Seedance、BGM）与剪辑类 tool（探测、裁剪、拼接、缩放、变速、混音、字幕烧录、转场、时间轴导出）注册在 `app/tools/`，由节点按需调用。
+
+---
 
 ## API 概览
 
-API 统一挂载在 `/api/v1` 下。完整参数以 `/docs` 为准。
+前缀：`/api/v1`。完整契约以 http://127.0.0.1:8080/docs 为准。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `POST` | `/api/v1/scripts` | 生成视频脚本文案 |
-| `POST` | `/api/v1/videos` | 创建完整视频生成任务 |
-| `GET` | `/api/v1/tasks` | 查询任务列表 |
-| `GET` | `/api/v1/tasks/{task_id}` | 查询单个任务详情 |
-| `POST` | `/api/v1/tasks/{task_id}/cancel` | 取消任务 |
-| `POST` | `/api/v1/tasks/{task_id}/retry` | 重试失败任务 |
-| `GET` | `/api/v1/materials` | 查询素材库 |
-| `GET` | `/api/v1/settings` | 读取工作台配置 |
-| `PUT` | `/api/v1/settings` | 保存工作台配置 |
-| `GET` | `/api/v1/billing/seedance` | 查询 Seedance 账单 |
+| `POST` | `/api/v1/scripts` | 生成脚本文案 |
+| `POST` | `/api/v1/videos` | 创建视频任务（入队 LangGraph Agent） |
+| `GET` | `/api/v1/tasks` | 任务列表 |
+| `GET` | `/api/v1/tasks/{task_id}` | 任务详情 |
+| `POST` | `/api/v1/tasks/{task_id}/cancel` | 取消 |
+| `POST` | `/api/v1/tasks/{task_id}/retry` | 重试 |
+| `GET` | `/api/v1/materials` | 素材库 |
+| `GET` / `PUT` | `/api/v1/settings` | 读写工作台配置 |
+| `GET` | `/api/v1/billing/seedance` | Seedance 账单 |
 
-创建视频任务仍走 `/api/v1/videos`，内部入队 LangGraph Agent。
+---
 
-## 项目结构
+## 目录结构
 
 ```text
-app/agent            LangGraph 编排
-app/tools            生产与剪辑 tool 层
-app/timeline         时间轴模型
-app/services         文案、TTS、素材、合成等现有能力
-webui/               TanStack WebUI
-resource/            字体、公共资源和内置音乐
-storage/             本地缓存、素材和任务产物
-test/                测试
-config.example.toml  配置模板
-main.py              API 与 WebUI 托管入口
+app/
+  agent/          LangGraph 状态机与节点
+  tools/          生产 / 剪辑 tool 注册表
+  timeline/       时间轴模型与编译
+  services/       文案、TTS、素材、合成、任务存储等
+  controllers/    FastAPI 路由
+webui/            React 工作台（自动剪辑、任务、素材、标签、账单、设置）
+resource/         字体、公共资源、内置音乐
+storage/          本地缓存、素材与任务产物（勿提交密钥与大文件）
+test/             测试
+docs/skill/       Agent Skill 辅助脚本
+config.example.toml
+main.py           API 入口（可托管已构建的 WebUI）
+cli.py            命令行入口
 ```
+
+---
 
 ## 开发与测试
 
@@ -146,6 +207,12 @@ main.py              API 与 WebUI 托管入口
 uv sync --frozen
 uv run python -X utf8 -m pytest -q test
 uv run ruff check .
+```
+
+可选 TwelveLabs：
+
+```bash
+uv sync --extra twelvelabs
 ```
 
 前端：
@@ -156,12 +223,23 @@ npm install
 npm run build
 ```
 
+---
+
 ## 数据与安全
 
-- `config.toml` 可能包含密钥，只保留在本地或部署环境中。
-- `storage/` 会保存上传素材和生成结果。
-- 对外暴露 API 前请配置鉴权、HTTPS 和访问控制。
+- `config.toml` 只放在本机或受控部署环境。
+- `storage/` 含上传素材与生成结果，注意备份与清理。
+- 对外暴露 API 前请配置鉴权、HTTPS 与网络访问控制。
 
-## 许可
+---
 
-本仓库沿用 [MIT License](LICENSE)。使用时请同时遵守上游项目以及第三方依赖、模型服务、素材服务的许可和使用条款。
+## 许可与致谢
+
+本仓库采用 [MIT License](LICENSE)。
+
+上游与相关能力：
+
+- [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo)
+- 各 LLM、TTS、素材与视频生成服务的官方条款
+
+使用时请同时遵守上游项目与第三方依赖、模型与素材服务的许可和使用规定。
