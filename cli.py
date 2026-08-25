@@ -128,9 +128,9 @@ def _bgm_type(value: str) -> str:
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Generate MoneyPrinterTurbo videos without the WebUI.\n\n"
+            "Generate Loom videos without the WebUI.\n\n"
             "Provider settings and credentials are read from config.toml.\n"
-            "Full-video tasks create scene prompts, then wait for user-uploaded clips.\n"
+            "The LangGraph agent produces a finished video from a topic or script.\n"
             "The default Edge TTS voice requires no API key."
         ),
         epilog="""
@@ -149,8 +149,8 @@ Pipeline stages:
   terms      Legacy checkpoint; prompt generation does not use search terms.
   audio      Generate system TTS narration.
   subtitle   Generate subtitles when enabled.
-  materials  Create scene prompts and wait for user-uploaded video clips.
-  video      Generate the final video and run configured cross-posting.
+  materials  Fill scene clips from the library, online search, or Seedance.
+  video      Export the finished video and run configured cross-posting.
   The command stops immediately after the selected stage and prints that stage's result.
 
 Output and exit status:
@@ -206,7 +206,7 @@ Output and exit status:
         "--video-source",
         default="manual_upload",
         choices=["manual_upload"],
-        help="scene prompts followed by user-uploaded video clips",
+        help="legacy material source flag; the CLI always uses AI-generated scene clips",
     )
     material_group.add_argument(
         "--video-materials",

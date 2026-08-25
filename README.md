@@ -5,11 +5,9 @@
 [![API](https://img.shields.io/badge/API-FastAPI-009688.svg)](main.py)
 [![WebUI](https://img.shields.io/badge/WebUI-React%20%2F%20TanStack-5c6ac4.svg)](webui/src/main.tsx)
 
-**Loom** 是面向短视频生产的剪辑 Agent 平台：输入主题或文案，自动完成脚本、导演规划、配音字幕、分镜素材补齐与成片导出。
+**Loom** 是独立的短视频自动剪辑 Agent：输入主题或文案，自动完成脚本、导演规划、配音字幕、分镜素材补齐与成片导出。
 
 主链路由 **LangGraph** 编排，业务能力拆成可替换的 **tool**；缺镜时依次走素材库、在线检索和 Seedance，不再卡在人工上传确认。
-
-基于 [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) 二次开发。
 
 ---
 
@@ -151,6 +149,19 @@ cp config.example.toml config.toml
 
 ---
 
+## Agent Skill
+
+把 `docs/skill` 交给支持 Agent Skill 的客户端后，只需提供主题，即可自动复用或安装 video-loom、补齐密钥并导出成片。
+
+```bash
+# 工作目录必须是 docs/skill
+uv run --no-project --python 3.11 python loom_agent.py --subject "你的主题"
+```
+
+协议与默认行为见 `docs/skill/SKILL.md`。缺密钥时会一次列出 LLM 与 Seedance（火山方舟）所需字段。
+
+---
+
 ## Agent 流水线
 
 ```text
@@ -193,7 +204,7 @@ webui/            React 工作台（自动剪辑、任务、素材、标签、�
 resource/         字体、公共资源、内置音乐
 storage/          本地缓存、素材与任务产物（勿提交密钥与大文件）
 test/             测试
-docs/skill/       Agent Skill 辅助脚本
+docs/skill/       Agent Skill（主题 → 成片）
 config.example.toml
 main.py           API 入口（可托管已构建的 WebUI）
 cli.py            命令行入口
@@ -233,13 +244,8 @@ npm run build
 
 ---
 
-## 许可与致谢
+## 许可
 
 本仓库采用 [MIT License](LICENSE)。
 
-上游与相关能力：
-
-- [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo)
-- 各 LLM、TTS、素材与视频生成服务的官方条款
-
-使用时请同时遵守上游项目与第三方依赖、模型与素材服务的许可和使用规定。
+使用时请同时遵守第三方依赖、模型与素材服务的许可和使用规定。

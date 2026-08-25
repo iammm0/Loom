@@ -1,55 +1,51 @@
-# MoneyPrinterTurbo Test Directory
+# video-loom 测试目录
 
-This directory contains unit tests for the **MoneyPrinterTurbo** project.
+本目录包含 **video-loom** 的单元测试与控制器测试。
 
-## Directory Structure
+## 目录结构
 
-- `services/`: Domain-focused unit and controller tests
-  - `test_task.py`: Task pipeline tests
-  - `test_task_manager.py`: In-memory and Redis queue tests
-  - `test_controller_*.py`: API controller tests split by controller domain
-  - `test_video.py`, `test_voice.py`: Media service tests
-- `test_main.py`: Application entry-point test
+- `services/`：按领域划分的单元测试与控制器测试
+  - `test_task.py`：任务流水线
+  - `test_task_manager.py`：内存与 Redis 队列
+  - `test_controller_*.py`：按控制器拆分的 API 测试
+  - `test_video.py`、`test_voice.py`：媒体服务
+  - `test_loom_agent_skill.py`：`docs/skill` 成片 Skill
+- `test_main.py`：应用入口测试
 
-## Running Tests
+## 运行测试
 
-The CI suite uses pytest, which also runs the existing `unittest.TestCase`
-tests:
+CI 使用 pytest，会同时收集现有的 `unittest.TestCase`：
 
 ```bash
-# Run all tests
+# 运行全部测试
 uv run python -X utf8 -m pytest -q test
 
-# Run a specific test file
+# 运行指定文件
 uv run python -X utf8 -m pytest -q test/services/test_video.py
 
-# Run a specific test class
+# 运行指定测试类
 uv run python -X utf8 -m pytest -q test/services/test_video.py::TestVideoService
 
-# Run a specific test method
+# 运行指定方法
 uv run python -X utf8 -m pytest -q test/services/test_video.py::TestVideoService::test_preprocess_video
 ```
 
-To run the same branch coverage check used by CI:
+与 CI 相同的分支覆盖率检查：
 
 ```bash
 uv run python -X utf8 -m coverage run -m pytest -q test
 uv run python -m coverage report
 ```
 
-Live provider tests are skipped by default. To run tests that may call external
-TTS or LLM services, set `MPT_RUN_INTEGRATION_TESTS=1` and provide the required
-provider credentials.
+对接真实 TTS / LLM 的测试默认跳过。需要跑这些用例时，设置 `MPT_RUN_INTEGRATION_TESTS=1` 并提供对应密钥。
 
-## Adding New Tests
+## 新增测试
 
-To add tests for other components, follow these guidelines:
+1. 文件命名为 `test_<domain>.py`，每个文件聚焦一个领域。
+2. 控制器测试按文件拆分，例如 `test_controller_video.py`。
+3. 可用 pytest 函数或 `unittest.TestCase`；pytest 会收集两者。
+4. 测试函数与方法使用 `test_` 前缀。
 
-1. Name files `test_<domain>.py` and keep each file focused on one domain.
-2. Split broad controller suites into files such as `test_controller_video.py`.
-3. Use either pytest functions or `unittest.TestCase`; pytest collects both.
-4. Name test functions and methods with the `test_` prefix.
+## 测试资源
 
-## Test Resources
-
-Place any resource files required for testing in the `test/resources` directory.
+测试所需资源文件放在 `test/resources`。

@@ -1,4 +1,4 @@
-# MoneyPrinterTurbo configuration example.
+# video-loom configuration example.
 # The app copies this file to config.toml on first run. Keep API keys and other
 # credentials in config.toml; do not commit your local config.toml.
 
@@ -348,8 +348,7 @@ model_id = "chatterbox"
 voices = ["default-Female"]
 
 [seedance]
-# Historical compatibility only. New workflows never call a video-generation API;
-# users generate clips externally from scene prompts and upload them per scene.
+# Generate missing scene clips when the library and online search cannot fill a shot.
 # Official Visual API base_url is https://visual.volcengineapi.com and requires
 # AK/SK signing; this workflow uses the Ark Bearer-token task API instead.
 base_url = "https://ark.cn-beijing.volces.com/api/v3"

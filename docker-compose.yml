@@ -1,5 +1,5 @@
 x-common-volumes: &common-volumes
-  - ./:/MoneyPrinterTurbo
+  - ./:/video-loom
 
 services:
   webui:

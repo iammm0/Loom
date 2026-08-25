@@ -11,12 +11,10 @@ RUN npm run build
 FROM ${PYTHON_BASE_IMAGE}
 
 # Set the working directory in the container
-WORKDIR /MoneyPrinterTurbo
+WORKDIR /video-loom
+RUN chmod 777 /video-loom
 
-# 设置/MoneyPrinterTurbo目录权限为777
-RUN chmod 777 /MoneyPrinterTurbo
-
-ENV PYTHONPATH="/MoneyPrinterTurbo"
+ENV PYTHONPATH="/video-loom"
 
 # 本地用户默认继续优先使用国内镜像；GitHub Actions 发布 GHCR 镜像时使用 default，
 # 避免海外 runner 访问国内镜像过慢导致镜像发布长时间卡住。
@@ -89,4 +87,4 @@ EXPOSE 8080
 CMD ["python3", "main.py"]
 
 # docker build -t video-loom .
-# docker run -v ${PWD}/config.toml:/MoneyPrinterTurbo/config.toml -v ${PWD}/storage:/MoneyPrinterTurbo/storage -p 127.0.0.1:8080:8080 video-loom
+# docker run -v ${PWD}/config.toml:/video-loom/config.toml -v ${PWD}/storage:/video-loom/storage -p 127.0.0.1:8080:8080 video-loom

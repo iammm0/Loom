@@ -472,8 +472,8 @@ class TestCli(unittest.TestCase):
         self.assertEqual(cm.exception.code, 0)
         help_text = output.getvalue()
         self.assertIn("zh-CN-XiaoxiaoNeural-Female", help_text)
-        self.assertIn("wait for user-uploaded clips", help_text)
-        self.assertIn("Create scene prompts", help_text)
+        self.assertIn("library, online search, or Seedance", help_text)
+        self.assertIn("Fill scene clips", help_text)
         self.assertIn("Pipeline stages:", help_text)
         self.assertIn("exit with 2", help_text)
 
@@ -489,7 +489,7 @@ class TestCli(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0)
-        self.assertIn("Generate MoneyPrinterTurbo videos", result.stdout)
+        self.assertIn("Generate Loom videos", result.stdout)
         self.assertEqual(result.stderr, "")
 
 
