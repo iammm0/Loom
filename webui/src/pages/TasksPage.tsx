@@ -2,13 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { api } from "../api";
-import { statusLabel } from "../types";
+import { crossPostStatusLabel, statusLabel } from "../types";
 
 type Task = {
   task_id: string;
   status?: string;
   video_subject?: string;
   created_at?: string;
+  cross_post_state?: string;
 };
 
 type TaskList = {
@@ -77,7 +78,10 @@ export function TasksPage() {
             >
               {task.video_subject || task.task_id}
             </Link>
-            <span className="status">{statusLabel(task.status)}</span>
+            <span className="status">
+              {statusLabel(task.status)}
+              {task.cross_post_state ? ` · ${crossPostStatusLabel(task.cross_post_state)}` : ""}
+            </span>
             <span className="muted">{when(task.created_at)}</span>
           </div>
         ))}

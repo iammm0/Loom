@@ -3,7 +3,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { api } from "../api";
 import { AgentSteps } from "../components/AgentSteps";
 import type { TaskDetail } from "../types";
-import { statusLabel } from "../types";
+import { crossPostStatusLabel, isTaskSettled, statusLabel } from "../types";
 
 export function TaskDetailPage() {
   const { taskId } = useParams({ from: "/tasks/$taskId" });
@@ -11,10 +11,7 @@ export function TaskDetailPage() {
   const query = useQuery({
     queryKey: ["task", taskId],
     queryFn: () => api.get<TaskDetail>(`/api/v1/tasks/${taskId}`),
-    refetchInterval: (current) =>
-      ["completed", "failed", "cancelled"].includes(current.state.data?.status || "")
-        ? false
-        : 2500,
+    refetchInterval: (current) => (isTaskSettled(current.state.data) ? false : 2500),
   });
   const retry = useMutation({
     mutationFn: () => api.post(`/api/v1/tasks/${taskId}/retry`),
@@ -48,6 +45,12 @@ export function TaskDetailPage() {
         <div className="agent-block">
           <AgentSteps steps={task?.stream?.steps} />
           {task?.error ? <div className="error">{task.error}</div> : null}
+          {task?.cross_post_state ? (
+            <div className={`publish-status ${task.cross_post_state === "complete" ? "ready" : ""}`}>
+              自动发布：{crossPostStatusLabel(task.cross_post_state)}
+              {task.cross_post_error ? ` · ${task.cross_post_error}` : ""}
+            </div>
+          ) : null}
           {video ? (
             <div className="artifact">
               <video src={video} controls />

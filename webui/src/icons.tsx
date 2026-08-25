@@ -63,6 +63,13 @@ export const Icons = {
       <path d="M12 3.5v2.2M12 18.3v2.2M4.8 6.5l1.6 1.6M17.6 15.9l1.6 1.6M3.5 12h2.2M18.3 12h2.2M4.8 17.5l1.6-1.6M17.6 8.1l1.6-1.6" />
     </Svg>
   ),
+  publish: (props: IconProps) => (
+    <Svg {...props}>
+      <path d="M12 16.5V5.5" />
+      <path d="M7.5 10 12 5.5 16.5 10" />
+      <path d="M5 18.5h14" />
+    </Svg>
+  ),
   send: (props: IconProps) => (
     <Svg {...props} fill="currentColor" stroke="none">
       <path d="M12 4.5 19.5 16H4.5z" />

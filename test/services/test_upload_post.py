@@ -99,6 +99,28 @@ class TestUploadPostService(unittest.TestCase):
         self.assertFalse(failed["success"])
         self.assertIn("offline", failed["error"])
 
+    def test_service_reads_live_config_after_init(self):
+        """工作台保存配置后，已创建的发布服务必须立即读到新值。"""
+        live = {
+            **_CONFIG_BASE,
+            "upload_post_enabled": False,
+            "upload_post_auto_upload": False,
+        }
+        with patch("app.services.upload_post.config.app", live):
+            service = UploadPostService()
+            self.assertFalse(service.is_configured())
+            self.assertFalse(service.auto_upload)
+
+            live["upload_post_enabled"] = True
+            live["upload_post_auto_upload"] = True
+            live["upload_post_platforms"] = ["youtube"]
+            live["upload_post_youtube_privacy_status"] = "private"
+
+            self.assertTrue(service.is_configured())
+            self.assertTrue(service.auto_upload)
+            self.assertEqual(service.platforms, ["youtube"])
+            self.assertEqual(service.youtube_privacy_status, "private")
+
 
 class TestUploadPostYouTubePayload(unittest.TestCase):
     @patch("app.services.upload_post.config.app", _CONFIG_BASE)

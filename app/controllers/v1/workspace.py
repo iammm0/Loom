@@ -158,6 +158,16 @@ def get_workspace_options(_request: Request):
                 {"id": item["id"], "label": item["label"]}
                 for item in seedance_service.configured_model_options()
             ],
+            "upload_post_platforms": [
+                {"id": "tiktok", "label": "TikTok", "hint": "短视频"},
+                {"id": "instagram", "label": "Instagram", "hint": "Reels"},
+                {"id": "youtube", "label": "YouTube", "hint": "Shorts"},
+            ],
+            "upload_post_youtube_privacy": [
+                {"id": "public", "label": "公开"},
+                {"id": "unlisted", "label": "不列出"},
+                {"id": "private", "label": "私密"},
+            ],
         },
     )
 

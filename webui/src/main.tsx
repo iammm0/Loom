@@ -12,6 +12,7 @@ import { Layout } from "./Layout";
 import { BillingPage } from "./pages/BillingPage";
 import { GeneratePage } from "./pages/GeneratePage";
 import { MaterialsPage } from "./pages/MaterialsPage";
+import { PublishPage } from "./pages/PublishPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { TasksPage } from "./pages/TasksPage";
@@ -60,6 +61,12 @@ const tagsRoute = createRoute({
   component: TagsPage,
 });
 
+const publishRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/publish",
+  component: PublishPage,
+});
+
 const billingRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/billing",
@@ -79,6 +86,7 @@ const routeTree = rootRoute.addChildren([
   taskDetailRoute,
   materialsRoute,
   tagsRoute,
+  publishRoute,
   billingRoute,
   settingsRoute,
 ]);

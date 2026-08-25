@@ -14,14 +14,22 @@ export type TaskDetail = {
   error?: string;
   video_subject?: string;
   videos?: string[];
+  created_at?: string;
+  cross_post_state?: string;
+  cross_post_error?: string;
+  cross_post_results?: Record<string, unknown>[];
   stream?: { headline?: string; steps?: StreamStep[] };
 };
 
 export type VoiceGroup = { id: string; label: string; voices: string[] };
 
+export type ChoiceOption = { id: string; label: string; hint?: string };
+
 export type WorkspaceOptions = {
   voice_groups: VoiceGroup[];
   fonts: string[];
+  upload_post_platforms?: ChoiceOption[];
+  upload_post_youtube_privacy?: ChoiceOption[];
 };
 
 export type Settings = {
@@ -48,4 +56,22 @@ export const STATUS_LABEL: Record<string, string> = {
 export function statusLabel(status?: string) {
   if (!status) return "";
   return STATUS_LABEL[status] || status;
+}
+
+export const CROSS_POST_STATUS_LABEL: Record<string, string> = {
+  pending: "待发布",
+  processing: "发布中",
+  complete: "已发布",
+  failed: "发布失败",
+};
+
+export function crossPostStatusLabel(status?: string) {
+  if (!status) return "";
+  return CROSS_POST_STATUS_LABEL[status] || status;
+}
+
+export function isTaskSettled(task?: { status?: string; cross_post_state?: string }) {
+  const generationDone = ["completed", "failed", "cancelled"].includes(task?.status || "");
+  const publishing = ["pending", "processing"].includes(task?.cross_post_state || "");
+  return generationDone && !publishing;
 }

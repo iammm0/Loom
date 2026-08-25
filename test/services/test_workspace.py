@@ -21,6 +21,16 @@ def test_workspace_options_include_providers_and_voices():
     assert response["data"]["voice_groups"]
     assert response["data"]["seedance_models"]
     assert any(item["id"] for item in response["data"]["seedance_models"])
+    assert [item["id"] for item in response["data"]["upload_post_platforms"]] == [
+        "tiktok",
+        "instagram",
+        "youtube",
+    ]
+    assert [item["id"] for item in response["data"]["upload_post_youtube_privacy"]] == [
+        "public",
+        "unlisted",
+        "private",
+    ]
 
 
 def test_update_settings_persists_app_and_seedance():

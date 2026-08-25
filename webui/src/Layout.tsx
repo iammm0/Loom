@@ -5,6 +5,7 @@ import { Icons } from "./icons";
 const NAV = [
   { to: "/generate", label: "自动剪辑", icon: Icons.sparkle, event: "loom-new-session" },
   { to: "/tasks", label: "任务", icon: Icons.list },
+  { to: "/publish", label: "自动发布", icon: Icons.publish },
   { to: "/materials", label: "素材", icon: Icons.folder },
   { to: "/tags", label: "标签", icon: Icons.tag },
   { to: "/billing", label: "账单", icon: Icons.receipt },

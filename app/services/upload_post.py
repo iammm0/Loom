@@ -11,16 +11,60 @@ from loguru import logger
 from app.config import config
 
 
+def _as_bool(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off", ""}:
+        return False
+    return default
+
+
+def _as_platforms(value) -> list[str]:
+    allowed = {"tiktok", "instagram", "youtube"}
+    if isinstance(value, str):
+        items = [item.strip().lower() for item in value.split(",")]
+    elif isinstance(value, (list, tuple)):
+        items = [str(item).strip().lower() for item in value]
+    else:
+        items = ["tiktok", "instagram"]
+    return [item for item in items if item in allowed]
+
+
 class UploadPostService:
     API_BASE = "https://api.upload-post.com"
 
-    def __init__(self):
-        self.api_key = config.app.get("upload_post_api_key", "")
-        self.username = config.app.get("upload_post_username", "")
-        self.enabled = config.app.get("upload_post_enabled", False)
-        self.platforms = config.app.get("upload_post_platforms", ["tiktok", "instagram"])
-        self.auto_upload = config.app.get("upload_post_auto_upload", False)
-        self.youtube_privacy_status = config.app.get("upload_post_youtube_privacy_status", "public")
+    @property
+    def api_key(self) -> str:
+        return str(config.app.get("upload_post_api_key", "") or "")
+
+    @property
+    def username(self) -> str:
+        return str(config.app.get("upload_post_username", "") or "")
+
+    @property
+    def enabled(self) -> bool:
+        return _as_bool(config.app.get("upload_post_enabled", False))
+
+    @property
+    def platforms(self) -> list[str]:
+        return _as_platforms(config.app.get("upload_post_platforms", ["tiktok", "instagram"]))
+
+    @property
+    def auto_upload(self) -> bool:
+        return _as_bool(config.app.get("upload_post_auto_upload", False))
+
+    @property
+    def youtube_privacy_status(self) -> str:
+        raw = config.app.get("upload_post_youtube_privacy_status", "public")
+        value = str(raw or "public").lower()
+        if value in {"public", "unlisted", "private"}:
+            return value
+        return "public"
 
     def is_configured(self) -> bool:
         return bool(self.api_key and self.username and self.enabled)
