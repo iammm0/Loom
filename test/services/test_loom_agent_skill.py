@@ -12,29 +12,30 @@ from unittest.mock import patch
 
 
 SKILL_SCRIPT = (
-    Path(__file__).parent.parent.parent / "docs" / "skill" / "mpt_agent.py"
+    Path(__file__).parent.parent.parent / "docs" / "skill" / "loom_agent.py"
 )
 SKILL_DOCUMENT = SKILL_SCRIPT.with_name("SKILL.md")
-SPEC = importlib.util.spec_from_file_location("mpt_agent_skill", SKILL_SCRIPT)
-mpt_agent = importlib.util.module_from_spec(SPEC)
+SPEC = importlib.util.spec_from_file_location("loom_agent_skill", SKILL_SCRIPT)
+loom_agent = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
-SPEC.loader.exec_module(mpt_agent)
+SPEC.loader.exec_module(loom_agent)
 
 
 MINIMAL_CONFIG = """\
 llm_provider = "moonshot"
 moonshot_api_key = ""
 deepseek_api_key = ""
-pexels_api_keys = []
-pixabay_api_keys = []
-coverr_api_keys = []
+volcengine_api_key = ""
 oneapi_api_key = ""
 oneapi_base_url = ""
 oneapi_model_name = ""
+
+[seedance]
+api_key = ""
 """
 
 
-class TestMptAgentSkill(unittest.TestCase):
+class TestLoomAgentSkill(unittest.TestCase):
     def create_project(self, root: Path) -> None:
         """创建足够完成安装和配置检查的最小项目结构。"""
         root.mkdir()
@@ -42,43 +43,39 @@ class TestMptAgentSkill(unittest.TestCase):
         (root / "config.example.toml").write_text(
             MINIMAL_CONFIG, encoding="utf-8"
         )
-
-    class FakeHttpResponse:
-        status = 200
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc_value, traceback):
-            return False
+        (root / "pyproject.toml").write_text(
+            'name = "video-loom"\n', encoding="utf-8"
+        )
 
     def test_skill_runs_helper_from_its_working_directory(self):
         """确保 Windows Agent 不会在命令中嵌入易被破坏的绝对路径。"""
         text = SKILL_DOCUMENT.read_text(encoding="utf-8")
 
         self.assertIn(
-            'uv run --no-project --python 3.11 python mpt_agent.py --subject',
+            "uv run --no-project --python 3.11 python loom_agent.py --subject",
             text,
         )
         self.assertIn("workdir=SKILL_DIR", text)
-        self.assertNotIn('python "<SKILL_DIR>/mpt_agent.py"', text)
+        self.assertNotIn('python "<SKILL_DIR>/loom_agent.py"', text)
+        self.assertNotIn("MoneyPrinterTurbo", text)
+        self.assertNotIn("mpt_agent.py", text)
 
     def test_first_run_only_requests_missing_api_keys(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir) / "MoneyPrinterTurbo"
+            root = Path(temp_dir) / "video-loom"
             self.create_project(root)
             output = io.StringIO()
 
             with patch.dict(os.environ, {}, clear=True), redirect_stdout(output):
-                code = mpt_agent.main(
+                code = loom_agent.main(
                     ["--subject", "人工智能如何改变生活", "--root", str(root)]
                 )
 
-            self.assertEqual(code, mpt_agent.NEEDS_INPUT_EXIT_CODE)
+            self.assertEqual(code, loom_agent.NEEDS_INPUT_EXIT_CODE)
             text = output.getvalue()
-            self.assertIn("MPT_NEEDS_INPUT", text)
+            self.assertIn("LOOM_NEEDS_INPUT", text)
             self.assertIn("MISSING=moonshot_api_key", text)
-            self.assertIn("MISSING=pexels_api_keys", text)
+            self.assertIn("MISSING=seedance.api_key", text)
             self.assertIn("LLM_PROVIDER_OPTION=deepseek|DeepSeek|", text)
             self.assertIn(
                 "LLM_PROVIDER_OPTION=oneapi|Other OpenAI-compatible provider|",
@@ -88,8 +85,9 @@ class TestMptAgentSkill(unittest.TestCase):
             self.assertNotIn("Microsoft Azure OpenAI", text)
             self.assertNotIn("xAI Grok", text)
             self.assertIn(
-                f"PEXELS_API_KEY_URL={mpt_agent.PEXELS_API_KEY_URL}", text
+                f"SEEDANCE_API_KEY_URL={loom_agent.SEEDANCE_API_KEY_URL}", text
             )
+            self.assertNotIn("PEXELS", text)
 
     def test_environment_keys_are_written_without_being_logged(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -97,43 +95,25 @@ class TestMptAgentSkill(unittest.TestCase):
             config_path.write_text(MINIMAL_CONFIG, encoding="utf-8")
             output = io.StringIO()
             llm_key = "secret-llm-key"
-            pexels_key = "secret-pexels-key"
+            seedance_key = "secret-seedance-key"
 
             with patch.dict(
                 os.environ,
                 {
-                    "MPT_LLM_PROVIDER": "deepseek",
-                    "MPT_LLM_API_KEY": llm_key,
-                    "MPT_PEXELS_API_KEY": pexels_key,
+                    "LOOM_LLM_PROVIDER": "deepseek",
+                    "LOOM_LLM_API_KEY": llm_key,
+                    "LOOM_SEEDANCE_API_KEY": seedance_key,
                 },
                 clear=True,
             ), redirect_stdout(output):
-                mpt_agent.apply_environment_config(config_path)
+                loom_agent.apply_environment_config(config_path)
 
             config = config_path.read_text(encoding="utf-8")
             self.assertIn('llm_provider = "deepseek"', config)
             self.assertIn(f'deepseek_api_key = "{llm_key}"', config)
-            self.assertIn(f'pexels_api_keys = ["{pexels_key}"]', config)
+            self.assertIn(f'api_key = "{seedance_key}"', config)
             self.assertNotIn(llm_key, output.getvalue())
-            self.assertNotIn(pexels_key, output.getvalue())
-
-    def test_material_key_check_matches_selected_source(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config_path = Path(temp_dir) / "config.toml"
-            config_path.write_text(
-                MINIMAL_CONFIG.replace(
-                    'moonshot_api_key = ""', 'moonshot_api_key = "configured"'
-                ).replace("pixabay_api_keys = []", 'pixabay_api_keys = ["key"]'),
-                encoding="utf-8",
-            )
-
-            _, default_missing = mpt_agent.missing_config(config_path, [])
-            _, pixabay_missing = mpt_agent.missing_config(
-                config_path, ["--video-source", "pixabay"]
-            )
-
-            self.assertEqual(default_missing, ["pexels_api_keys"])
-            self.assertEqual(pixabay_missing, [])
+            self.assertNotIn(seedance_key, output.getvalue())
 
     def test_existing_provider_key_is_reused_without_asking_user(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -142,14 +122,17 @@ class TestMptAgentSkill(unittest.TestCase):
             config_path.write_text(
                 MINIMAL_CONFIG.replace(
                     'deepseek_api_key = ""', f'deepseek_api_key = "{secret}"'
-                ).replace("pexels_api_keys = []", 'pexels_api_keys = ["key"]'),
+                ).replace(
+                    '[seedance]\napi_key = ""',
+                    '[seedance]\napi_key = "seedance-key"',
+                ),
                 encoding="utf-8",
             )
             output = io.StringIO()
 
             with redirect_stdout(output):
-                provider = mpt_agent.reuse_existing_llm_provider(config_path)
-            _, missing = mpt_agent.missing_config(config_path, [])
+                provider = loom_agent.reuse_existing_llm_provider(config_path)
+            _, missing = loom_agent.missing_config(config_path, [])
 
             self.assertEqual(provider, "deepseek")
             self.assertEqual(missing, [])
@@ -159,17 +142,35 @@ class TestMptAgentSkill(unittest.TestCase):
             )
             self.assertNotIn(secret, output.getvalue())
 
-    def test_only_missing_pexels_key_does_not_ask_for_llm_again(self):
+    def test_volcengine_key_satisfies_seedance_without_duplicate_prompt(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.toml"
+            config_path.write_text(
+                MINIMAL_CONFIG.replace(
+                    'moonshot_api_key = ""', 'moonshot_api_key = "configured"'
+                ).replace(
+                    'volcengine_api_key = ""',
+                    'volcengine_api_key = "shared-ark-key"',
+                ),
+                encoding="utf-8",
+            )
+
+            _, missing = loom_agent.missing_config(config_path, [])
+            self.assertEqual(missing, [])
+
+    def test_only_missing_seedance_key_does_not_ask_for_llm_again(self):
         output = io.StringIO()
 
         with redirect_stdout(output):
-            code = mpt_agent.report_missing_config(
-                "deepseek", ["pexels_api_keys"]
+            code = loom_agent.report_missing_config(
+                "deepseek", ["seedance.api_key"]
             )
 
         text = output.getvalue()
-        self.assertEqual(code, mpt_agent.NEEDS_INPUT_EXIT_CODE)
-        self.assertIn(f"PEXELS_API_KEY_URL={mpt_agent.PEXELS_API_KEY_URL}", text)
+        self.assertEqual(code, loom_agent.NEEDS_INPUT_EXIT_CODE)
+        self.assertIn(
+            f"SEEDANCE_API_KEY_URL={loom_agent.SEEDANCE_API_KEY_URL}", text
+        )
         self.assertNotIn("LLM_PROVIDER_OPTIONS_BEGIN", text)
 
     def test_custom_openai_compatible_provider_requires_connection_details(self):
@@ -182,15 +183,15 @@ class TestMptAgentSkill(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            provider, missing = mpt_agent.missing_config(config_path, [])
+            provider, missing = loom_agent.missing_config(config_path, [])
             output = io.StringIO()
             with redirect_stdout(output):
-                mpt_agent.report_missing_config(provider, missing)
+                loom_agent.report_missing_config(provider, missing)
 
             self.assertEqual(provider, "oneapi")
             self.assertEqual(
                 missing,
-                ["oneapi_base_url", "oneapi_model_name", "pexels_api_keys"],
+                ["oneapi_base_url", "oneapi_model_name", "seedance.api_key"],
             )
             self.assertIn("OPENAI_COMPATIBLE_REQUIRED=", output.getvalue())
 
@@ -202,14 +203,14 @@ class TestMptAgentSkill(unittest.TestCase):
             with patch.dict(
                 os.environ,
                 {
-                    "MPT_LLM_PROVIDER": "openai_compatible",
-                    "MPT_LLM_API_KEY": "custom-key",
-                    "MPT_LLM_BASE_URL": "https://llm.example.com/v1",
-                    "MPT_LLM_MODEL_NAME": "example-model",
+                    "LOOM_LLM_PROVIDER": "openai_compatible",
+                    "LOOM_LLM_API_KEY": "custom-key",
+                    "LOOM_LLM_BASE_URL": "https://llm.example.com/v1",
+                    "LOOM_LLM_MODEL_NAME": "example-model",
                 },
                 clear=True,
             ):
-                mpt_agent.apply_environment_config(config_path)
+                loom_agent.apply_environment_config(config_path)
 
             config = config_path.read_text(encoding="utf-8")
             self.assertIn('llm_provider = "oneapi"', config)
@@ -228,69 +229,9 @@ class TestMptAgentSkill(unittest.TestCase):
                 archive.writestr("../outside.txt", "unsafe")
 
             with zipfile.ZipFile(archive_path) as archive, self.assertRaises(
-                mpt_agent.SkillError
+                loom_agent.SkillError
             ):
-                mpt_agent._safe_extract(archive, destination)
-
-    def test_pexels_validation_filters_rejected_keys_without_logging_values(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config_path = Path(temp_dir) / "config.toml"
-            bad_key = "rejected-secret-key"
-            good_key = "valid-secret-key"
-            config_path.write_text(
-                MINIMAL_CONFIG.replace(
-                    "pexels_api_keys = []",
-                    f'pexels_api_keys = ["{bad_key}", "{good_key}"]',
-                ),
-                encoding="utf-8",
-            )
-            output = io.StringIO()
-
-            def validate(request, timeout):
-                self.assertEqual(
-                    request.full_url, mpt_agent.PEXELS_VALIDATION_URL
-                )
-                if request.get_header("Authorization") == bad_key:
-                    raise mpt_agent.urllib.error.HTTPError(
-                        request.full_url, 401, "Unauthorized", None, None
-                    )
-                return self.FakeHttpResponse()
-
-            with patch.object(
-                mpt_agent.urllib.request, "urlopen", side_effect=validate
-            ), redirect_stdout(output):
-                valid = mpt_agent.validate_pexels_config(config_path, [])
-
-            config = config_path.read_text(encoding="utf-8")
-            self.assertTrue(valid)
-            self.assertNotIn(bad_key, config)
-            self.assertIn(good_key, config)
-            self.assertNotIn(bad_key, output.getvalue())
-            self.assertNotIn(good_key, output.getvalue())
-
-    def test_pexels_validation_requests_new_key_when_all_are_rejected(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config_path = Path(temp_dir) / "config.toml"
-            config_path.write_text(
-                MINIMAL_CONFIG.replace(
-                    "pexels_api_keys = []", 'pexels_api_keys = ["bad-key"]'
-                ),
-                encoding="utf-8",
-            )
-            error = mpt_agent.urllib.error.HTTPError(
-                mpt_agent.PEXELS_VALIDATION_URL,
-                403,
-                "Forbidden",
-                None,
-                None,
-            )
-
-            with patch.object(
-                mpt_agent.urllib.request, "urlopen", side_effect=error
-            ):
-                valid = mpt_agent.validate_pexels_config(config_path, [])
-
-            self.assertFalse(valid)
+                loom_agent._safe_extract(archive, destination)
 
     def test_generation_returns_only_non_empty_final_video(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -304,14 +245,14 @@ class TestMptAgentSkill(unittest.TestCase):
                 return SimpleNamespace(returncode=0)
 
             with (
-                patch.object(mpt_agent.shutil, "which", return_value="uv"),
-                patch.object(mpt_agent, "run_checked"),
-                patch.object(mpt_agent.uuid, "uuid4", return_value=task_id),
+                patch.object(loom_agent.shutil, "which", return_value="uv"),
+                patch.object(loom_agent, "run_checked"),
+                patch.object(loom_agent.uuid, "uuid4", return_value=task_id),
                 patch.object(
-                    mpt_agent.subprocess, "run", side_effect=finish_cli
+                    loom_agent.subprocess, "run", side_effect=finish_cli
                 ) as run_mock,
             ):
-                videos, task_dir, log_path, result_path = mpt_agent.generate_video(
+                videos, task_dir, log_path, result_path = loom_agent.generate_video(
                     root,
                     "测试主题",
                     ["--video-aspect", "16:9", "--stop-at", "script"],
@@ -325,7 +266,7 @@ class TestMptAgentSkill(unittest.TestCase):
             command = run_mock.call_args.args[0]
             voice_index = command.index("--voice-name")
             self.assertEqual(
-                command[voice_index + 1], mpt_agent.DEFAULT_VOICE_NAME
+                command[voice_index + 1], loom_agent.DEFAULT_VOICE_NAME
             )
             self.assertEqual(command[-2:], ["--stop-at", "video"])
 
@@ -342,18 +283,20 @@ class TestMptAgentSkill(unittest.TestCase):
                 return SimpleNamespace(returncode=1)
 
             with (
-                patch.object(mpt_agent.shutil, "which", return_value="uv"),
-                patch.object(mpt_agent, "run_checked"),
-                patch.object(mpt_agent.uuid, "uuid4", return_value=task_id),
-                patch.object(mpt_agent.subprocess, "run", side_effect=reject_model),
+                patch.object(loom_agent.shutil, "which", return_value="uv"),
+                patch.object(loom_agent, "run_checked"),
+                patch.object(loom_agent.uuid, "uuid4", return_value=task_id),
+                patch.object(
+                    loom_agent.subprocess, "run", side_effect=reject_model
+                ),
                 redirect_stderr(stderr),
-                self.assertRaises(mpt_agent.SkillError),
+                self.assertRaises(loom_agent.SkillError),
             ):
-                mpt_agent.generate_video(root, "测试主题", [])
+                loom_agent.generate_video(root, "测试主题", [])
 
             self.assertIn(model_error, stderr.getvalue())
             result = json.loads(
-                mpt_agent.result_manifest_path(root).read_text(encoding="utf-8")
+                loom_agent.result_manifest_path(root).read_text(encoding="utf-8")
             )
             self.assertEqual(result["status"], "failed")
 
@@ -366,21 +309,21 @@ class TestMptAgentSkill(unittest.TestCase):
         )
 
         with patch.object(
-            mpt_agent.subprocess, "run", return_value=result
+            loom_agent.subprocess, "run", return_value=result
         ), redirect_stdout(stdout), redirect_stderr(stderr):
-            mpt_agent.run_checked(["uv", "sync", "--frozen"], cwd=Path.cwd())
+            loom_agent.run_checked(["uv", "sync", "--frozen"], cwd=Path.cwd())
 
         self.assertNotIn("package-a", stdout.getvalue())
         self.assertNotIn("package-a", stderr.getvalue())
 
     def test_explicit_voice_is_not_overridden(self):
         self.assertTrue(
-            mpt_agent.has_cli_option(
+            loom_agent.has_cli_option(
                 ["--voice-name", "en-US-JennyNeural-Female"], "--voice-name"
             )
         )
         self.assertTrue(
-            mpt_agent.has_cli_option(
+            loom_agent.has_cli_option(
                 ["--voice-name=en-US-JennyNeural-Female"], "--voice-name"
             )
         )
