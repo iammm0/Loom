@@ -426,6 +426,162 @@ def _extract_qwen_generation_text(response) -> str:
     return _normalize_text_response(text, "qwen")
 
 
+_NON_CHAT_MODEL_MARKERS = (
+    "embed",
+    "whisper",
+    "tts",
+    "dall-e",
+    "dall_e",
+    "imagen",
+    "image",
+    "moderation",
+    "realtime",
+    "transcribe",
+    "audio",
+)
+
+
+def _is_chat_model_id(model_id: str) -> bool:
+    lowered = model_id.lower()
+    return not any(marker in lowered for marker in _NON_CHAT_MODEL_MARKERS)
+
+
+def _model_options(*groups: list[str]) -> list[dict[str, str]]:
+    seen: set[str] = set()
+    options: list[dict[str, str]] = []
+    for group in groups:
+        for model_id in group:
+            value = str(model_id or "").strip()
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            options.append({"id": value, "label": value})
+    return options
+
+
+def _openai_model_ids(client) -> list[str]:
+    page = client.models.list()
+    items = getattr(page, "data", None) or []
+    return [
+        str(item.id).strip()
+        for item in items
+        if str(getattr(item, "id", "") or "").strip()
+    ]
+
+
+def _probe_gemini_models(api_key: str, base_url: str) -> list[str]:
+    from google import genai
+    from google.genai import types
+
+    http_options = types.HttpOptions(base_url=base_url) if base_url else None
+    ids: list[str] = []
+    with genai.Client(api_key=api_key, http_options=http_options) as client:
+        for model in client.models.list():
+            name = str(getattr(model, "name", "") or "").strip()
+            if not name:
+                continue
+            model_id = name.rsplit("/", 1)[-1]
+            actions = list(getattr(model, "supported_actions", None) or [])
+            if actions and "generateContent" not in actions:
+                continue
+            ids.append(model_id)
+    return ids
+
+
+def _probe_provider_models(
+    provider,
+    *,
+    api_key: str,
+    base_url: str,
+    extra: Mapping[str, str],
+) -> list[str]:
+    adapter = provider.adapter
+    if adapter in {"qwen", "litellm"}:
+        return [provider.default_model] if provider.default_model else []
+    if adapter == "gemini":
+        return _probe_gemini_models(api_key, base_url)
+    if adapter == "azure":
+        client = AzureOpenAI(
+            api_key=api_key,
+            api_version=str(extra.get("api_version") or "2024-02-15-preview"),
+            azure_endpoint=base_url,
+        )
+        return _openai_model_ids(client)
+    if adapter == "cloudflare_ai_gateway":
+        client = OpenAI(
+            api_key=api_key,
+            base_url=(
+                "https://api.cloudflare.com/client/v4/accounts/"
+                f"{extra.get('account_id')}/ai/v1"
+            ),
+            default_headers={"cf-aig-gateway-id": extra.get("gateway_id") or "default"},
+        )
+        return _openai_model_ids(client)
+    client = OpenAI(api_key=api_key or "ollama", base_url=base_url)
+    return _openai_model_ids(client)
+
+
+def list_available_models(
+    provider_id: str = "",
+    *,
+    api_key: str = "",
+    base_url: str = "",
+    extra: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Probe chat models for the selected provider so the settings form can list them."""
+    llm_provider = str(
+        provider_id or config.app.get("llm_provider") or DEFAULT_LLM_PROVIDER_ID
+    ).lower()
+    provider = get_llm_provider(llm_provider)
+    if provider is None:
+        return {"models": [], "error": f"不支持的 LLM 提供商：{llm_provider}"}
+
+    api_key = str(
+        api_key or config.app.get(provider.config_key("api_key"), "") or ""
+    ).strip()
+    if llm_provider == "ollama" and not api_key:
+        api_key = "ollama"
+    configured_base = str(
+        base_url or config.app.get(provider.config_key("base_url"), "") or ""
+    )
+    resolved_base = provider.resolve_base_url(configured_base)
+    if llm_provider == "ollama" and not resolved_base:
+        resolved_base = config.get_default_ollama_base_url()
+    extra_values = {
+        field.config_suffix: str(
+            (extra or {}).get(field.config_suffix)
+            or config.app.get(provider.config_key(field.config_suffix), "")
+            or field.default_value
+            or ""
+        ).strip()
+        for field in provider.extra_fields
+    }
+    fallback = _model_options([provider.default_model])
+    if provider.requires_api_key and not api_key:
+        return {"models": fallback, "error": "请先填写 API Key"}
+    if provider.requires_base_url and not resolved_base:
+        return {"models": fallback, "error": "请先填写 Base URL"}
+    for field in provider.extra_fields:
+        if field.required and not extra_values[field.config_suffix]:
+            return {"models": fallback, "error": f"请先填写 {field.config_suffix}"}
+    try:
+        discovered = _probe_provider_models(
+            provider,
+            api_key=api_key,
+            base_url=resolved_base,
+            extra=extra_values,
+        )
+    except Exception as exc:
+        logger.warning(f"failed to probe {llm_provider} models: {exc}")
+        return {"models": fallback, "error": str(exc)[:300] or "模型探测失败"}
+    chat_ids = [item for item in discovered if _is_chat_model_id(item)]
+    ids = chat_ids or list(discovered)
+    return {
+        "models": _model_options([provider.default_model], ids),
+        "error": "" if ids else "未探测到可用模型",
+    }
+
+
 def _generate_response(prompt: str) -> str:
     try:
         llm_provider = str(

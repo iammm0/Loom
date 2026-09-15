@@ -410,6 +410,34 @@ class TestTaskService(unittest.TestCase):
         self.assertEqual(failed_task["failed_stage"], "script")
         self.assertNotIn("Seedance", failed_task["error"])
 
+    def test_apply_material_defaults_uses_online_sources_without_seedance_key(self):
+        params = VideoParams(video_subject="test", material_strategy="ai_generated")
+        with (
+            patch.object(tm.seedance, "is_enabled", return_value=False),
+            patch.object(
+                tm.material_pipeline,
+                "configured_stock_sources",
+                return_value=["local", "pexels", "pixabay"],
+            ),
+        ):
+            tm.apply_material_defaults(params)
+
+        self.assertEqual(params.material_strategy, "local_first")
+        self.assertEqual(params.video_sources, ["local", "pexels", "pixabay"])
+        self.assertEqual(params.video_source, "pexels")
+
+    def test_apply_material_defaults_keeps_ai_generated_when_seedance_enabled(self):
+        params = VideoParams(
+            video_subject="test",
+            material_strategy="ai_generated",
+            video_sources=["pexels"],
+        )
+        with patch.object(tm.seedance, "is_enabled", return_value=True):
+            tm.apply_material_defaults(params)
+
+        self.assertEqual(params.material_strategy, "ai_generated")
+        self.assertEqual(params.video_sources, ["pexels"])
+
     def test_generate_terms_uses_script_order_mode_when_enabled(self):
         """
         默认模式不受影响；只有用户显式开启素材按文案顺序匹配时，任务层才
@@ -1107,6 +1135,7 @@ class TestTaskService(unittest.TestCase):
 
         with (
             patch.object(tm, "generate_script", return_value="generated script"),
+            patch.object(tm, "generate_terms", return_value=["coffee"]),
             patch.object(tm, "save_script_data"),
             patch.object(
                 tm,
@@ -1119,6 +1148,7 @@ class TestTaskService(unittest.TestCase):
                 "get_video_materials",
                 side_effect=wait_for_scene_uploads,
             ),
+            patch.object(tm.seedance, "is_enabled", return_value=False),
             patch(
                 "app.tools.production.seedance.is_enabled",
                 return_value=False,
@@ -1252,6 +1282,7 @@ class TestTaskService(unittest.TestCase):
 
         with (
             patch.object(tm, "generate_script", return_value="generated script"),
+            patch.object(tm, "generate_terms", return_value=["coffee"]),
             patch.object(tm, "save_script_data"),
             patch.object(
                 tm,

@@ -1,12 +1,20 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { AgentSteps } from "../components/AgentSteps";
 import { Icons } from "../icons";
-import type { Settings, StreamStep, TaskDetail, WorkspaceOptions } from "../types";
+import type {
+  ConversationDetail,
+  ConversationSummary,
+  Settings,
+  StreamStep,
+  TaskDetail,
+  WorkspaceOptions,
+} from "../types";
 import { crossPostStatusLabel, isTaskSettled } from "../types";
 
-type CreateTaskResponse = { task_id: string };
+type CreateTaskResponse = { task_id: string; conversation_id?: string };
 
 type Draft = {
   video_language: string;
@@ -42,8 +50,9 @@ const DURATIONS = [
 ];
 const STRATEGIES = [
   ["ai_generated", "AI 分镜"],
-  ["local_first", "素材库"],
+  ["local_first", "在线素材"],
 ];
+const DEFAULT_VIDEO_SOURCES = ["local", "pexels", "pixabay", "coverr"];
 const DEMO_PROMPT = "制作一条介绍城市夜间书店的 30 秒竖屏短视频";
 const DEMO_STEPS = [
   {
@@ -198,6 +207,26 @@ function nextValue(values: string[], current: string) {
   return values[(index + 1) % values.length];
 }
 
+function SheetField({
+  label,
+  name,
+  children,
+}: {
+  label: string;
+  name: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="sheet-field agent-setting-field">
+      <span className="sheet-label">
+        {label}
+        <code className="sheet-param">{name}</code>
+      </span>
+      {children}
+    </label>
+  );
+}
+
 function splitPrompt(text: string) {
   const trimmed = text.trim();
   const lines = trimmed.split(/\n/);
@@ -236,12 +265,17 @@ function inferRequestedVideoCount(text: string) {
   return 1;
 }
 
-function defaultsFrom(ui: Record<string, unknown>, fallbackVoice: string, fallbackFont: string): Draft {
+function defaultsFrom(
+  ui: Record<string, unknown>,
+  fallbackVoice: string,
+  fallbackFont: string,
+  seedanceEnabled: boolean,
+): Draft {
   return {
     video_language: "",
     target_duration: "auto",
     video_aspect: "9:16",
-    material_strategy: "ai_generated",
+    material_strategy: seedanceEnabled ? "ai_generated" : "local_first",
     voice_name: String(ui.voice_name || fallbackVoice),
     subtitle_enabled: true,
     font_name: String(ui.font_name || fallbackFont),
@@ -551,9 +585,19 @@ function DemoAgentTurn({
   );
 }
 
-function GenerateSession() {
+function GenerateSession({
+  conversationId,
+  startFresh,
+}: {
+  conversationId: string;
+  startFresh: boolean;
+}) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [activeId] = useState(() => conversationId || crypto.randomUUID());
+  const [hydrated, setHydrated] = useState(Boolean(startFresh));
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
   const [demoRunning, setDemoRunning] = useState(false);
@@ -577,16 +621,62 @@ function GenerateSession() {
   const fallbackFont = String(ui.font_name || "STHeitiMedium.ttc");
 
   useEffect(() => {
-    if (draft || !settings.data) return;
+    if (draft || !settings.data || options.isLoading) return;
     const nextUi = settings.data.ui || {};
     setDraft(
       defaultsFrom(
         nextUi,
         String(nextUi.voice_name || fallbackVoice),
         String(nextUi.font_name || fallbackFont),
+        Boolean(options.data?.seedance_enabled),
       ),
     );
-  }, [draft, fallbackFont, fallbackVoice, settings.data]);
+  }, [draft, fallbackFont, fallbackVoice, options.data?.seedance_enabled, options.isLoading, settings.data]);
+
+  useEffect(() => {
+    if (startFresh) return;
+    let cancelled = false;
+    const load = async () => {
+      if (conversationId) {
+        try {
+          const data = await api.get<ConversationDetail>(`/api/v1/conversations/${conversationId}`);
+          if (cancelled) return;
+          setTurns(
+            (data.turns || []).map((turn) => ({
+              kind: "task" as const,
+              prompt: turn.prompt,
+              taskId: turn.task_id,
+            })),
+          );
+        } catch {
+          if (!cancelled) setTurns([]);
+        } finally {
+          if (!cancelled) setHydrated(true);
+        }
+        return;
+      }
+      try {
+        const listed = await api.get<{ conversations: ConversationSummary[] }>("/api/v1/conversations");
+        const latest = listed.conversations?.[0];
+        if (cancelled) return;
+        if (latest?.conversation_id) {
+          await navigate({
+            to: "/generate",
+            search: { c: latest.conversation_id },
+            replace: true,
+          });
+          return;
+        }
+      } catch {
+        /* empty workspace still shows a new chat */
+      }
+      if (!cancelled) setHydrated(true);
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, navigate, startFresh]);
 
   useEffect(() => {
     const node = threadRef.current;
@@ -609,7 +699,7 @@ function GenerateSession() {
 
   const voices = options.data?.voice_groups || [];
   const fonts = options.data?.fonts?.length ? options.data.fonts : [fallbackFont];
-  const empty = turns.length === 0;
+  const empty = hydrated && turns.length === 0;
   const patch = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((current) => (current ? { ...current, [key]: value } : current));
 
@@ -619,6 +709,10 @@ function GenerateSession() {
     setError("");
     const parts = splitPrompt(text);
     const requestedVideoCount = inferRequestedVideoCount(text);
+    const configuredSources = Array.isArray(settings.data?.app?.video_sources)
+      ? (settings.data.app.video_sources as string[])
+      : DEFAULT_VIDEO_SOURCES;
+    const seedanceEnabled = Boolean(options.data?.seedance_enabled);
     try {
       const data = await mutation.mutateAsync({
         ...parts,
@@ -626,7 +720,8 @@ function GenerateSession() {
         video_language: draft.video_language,
         target_duration: draft.target_duration,
         video_aspect: draft.video_aspect,
-        material_strategy: draft.material_strategy,
+        material_strategy: seedanceEnabled ? draft.material_strategy : "local_first",
+        video_sources: configuredSources,
         ...(requestedVideoCount > 1 ? { video_count: requestedVideoCount } : {}),
         voice_name: draft.voice_name,
         subtitle_enabled: draft.subtitle_enabled,
@@ -644,10 +739,17 @@ function GenerateSession() {
         bgm_type: draft.bgm_type,
         sonilo_bgm_prompt: draft.sonilo_bgm_prompt,
         ai_director_enabled: true,
+        conversation_id: activeId,
+        user_prompt: text,
       });
       setTurns((current) => [...current, { kind: "task", prompt: text, taskId: data.task_id }]);
       setPrompt("");
       setOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      const nextId = data.conversation_id || activeId;
+      if (nextId && nextId !== conversationId) {
+        void navigate({ to: "/generate", search: { c: nextId }, replace: true });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "创建失败");
     }
@@ -667,7 +769,14 @@ function GenerateSession() {
   };
 
   const durationLabel = DURATIONS.find((item) => item[0] === draft?.target_duration)?.[1] || "自动";
-  const strategyLabel = STRATEGIES.find((item) => item[0] === draft?.material_strategy)?.[1] || "AI 分镜";
+  const seedanceEnabled = Boolean(options.data?.seedance_enabled);
+  const strategyChoices = seedanceEnabled
+    ? STRATEGIES
+    : STRATEGIES.filter((item) => item[0] === "local_first");
+  const strategyLabel =
+    strategyChoices.find((item) => item[0] === draft?.material_strategy)?.[1] ||
+    strategyChoices[0]?.[1] ||
+    "在线素材";
 
   const composer = (
     <div className="composer-dock">
@@ -675,8 +784,7 @@ function GenerateSession() {
         {open && draft ? (
           <div className="sheet">
             <div className="agent-settings-grid">
-              <label className="agent-setting-field">
-                <span>语言</span>
+              <SheetField label="语言" name="video_language">
                 <select
                   value={draft.video_language}
                   onChange={(event) => patch("video_language", event.target.value)}
@@ -686,9 +794,8 @@ function GenerateSession() {
                   <option value="en-US">英语</option>
                   <option value="ja-JP">日语</option>
                 </select>
-              </label>
-              <label className="agent-setting-field">
-                <span>配音</span>
+              </SheetField>
+              <SheetField label="配音" name="voice_name">
                 <select
                   value={draft.voice_name}
                   onChange={(event) => patch("voice_name", event.target.value)}
@@ -703,19 +810,17 @@ function GenerateSession() {
                     </optgroup>
                   ))}
                 </select>
-              </label>
-              <label className="agent-setting-field">
-                <span>配乐</span>
+              </SheetField>
+              <SheetField label="配乐" name="bgm_type">
                 <select value={draft.bgm_type} onChange={(event) => patch("bgm_type", event.target.value)}>
                   <option value="random">随机配乐</option>
                   <option value="">无配乐</option>
                   <option value="sonilo">Sonilo</option>
                 </select>
-              </label>
+              </SheetField>
               {draft.subtitle_enabled ? (
                 <>
-                  <label className="agent-setting-field">
-                    <span>字幕字体</span>
+                  <SheetField label="字幕字体" name="font_name">
                     <select
                       value={draft.font_name}
                       onChange={(event) => patch("font_name", event.target.value)}
@@ -726,9 +831,8 @@ function GenerateSession() {
                         </option>
                       ))}
                     </select>
-                  </label>
-                  <label className="agent-setting-field">
-                    <span>字幕位置</span>
+                  </SheetField>
+                  <SheetField label="字幕位置" name="subtitle_position">
                     <select
                       value={draft.subtitle_position}
                       onChange={(event) => patch("subtitle_position", event.target.value)}
@@ -738,22 +842,24 @@ function GenerateSession() {
                       <option value="bottom">底部</option>
                       <option value="custom">自定义</option>
                     </select>
-                  </label>
+                  </SheetField>
                 </>
               ) : null}
             </div>
             {draft.bgm_type === "sonilo" ? (
-              <label className="agent-setting-field">
-                <span>配乐描述</span>
+              <SheetField label="配乐描述" name="sonilo_bgm_prompt">
                 <input
                   value={draft.sonilo_bgm_prompt}
                   onChange={(event) => patch("sonilo_bgm_prompt", event.target.value)}
                   placeholder="例如：轻快、温暖、有节奏感"
                 />
-              </label>
+              </SheetField>
             ) : null}
             <label className="toggle">
-              字幕
+              <span className="sheet-label">
+                字幕
+                <code className="sheet-param">subtitle_enabled</code>
+              </span>
               <input
                 type="checkbox"
                 checked={draft.subtitle_enabled}
@@ -792,6 +898,7 @@ function GenerateSession() {
             type="button"
             onClick={() => draft && patch("video_aspect", nextValue(ASPECTS, draft.video_aspect))}
           >
+            <span className="chip-k" title="video_aspect">画幅</span>
             {draft?.video_aspect || "9:16"}
           </button>
           <button
@@ -801,6 +908,7 @@ function GenerateSession() {
               draft && patch("target_duration", nextValue(DURATIONS.map((item) => item[0]), draft.target_duration))
             }
           >
+            <span className="chip-k" title="target_duration">时长</span>
             {durationLabel}
           </button>
           <button
@@ -808,9 +916,16 @@ function GenerateSession() {
             type="button"
             onClick={() =>
               draft &&
-              patch("material_strategy", nextValue(STRATEGIES.map((item) => item[0]), draft.material_strategy))
+              patch(
+                "material_strategy",
+                nextValue(
+                  strategyChoices.map((item) => item[0]),
+                  draft.material_strategy,
+                ),
+              )
             }
           >
+            <span className="chip-k" title="material_strategy">素材</span>
             {strategyLabel}
           </button>
           <span className="spacer" />
@@ -831,6 +946,10 @@ function GenerateSession() {
       {error ? <div className="error">{error}</div> : null}
     </div>
   );
+
+  if (!hydrated) {
+    return <section className="agent-page" />;
+  }
 
   if (empty) {
     return (
@@ -864,11 +983,26 @@ function GenerateSession() {
 }
 
 export function GeneratePage() {
-  const [session, setSession] = useState(0);
+  const search = useSearch({ strict: false }) as { c?: string; new?: boolean };
+  const navigate = useNavigate();
+  const [freshKey, setFreshKey] = useState(0);
+
   useEffect(() => {
-    const reset = () => setSession((value) => value + 1);
+    const reset = () => {
+      setFreshKey((value) => value + 1);
+      void navigate({ to: "/generate", search: { new: true } });
+    };
     window.addEventListener("loom-new-session", reset);
     return () => window.removeEventListener("loom-new-session", reset);
-  }, []);
-  return <GenerateSession key={session} />;
+  }, [navigate]);
+
+  const conversationId = search.c || "";
+  const startFresh = Boolean(search.new) && !conversationId;
+  return (
+    <GenerateSession
+      key={`${conversationId || "none"}-${startFresh ? `new-${freshKey}` : "open"}`}
+      conversationId={conversationId}
+      startFresh={startFresh}
+    />
+  );
 }

@@ -230,6 +230,8 @@ def create_task(
     body: Union[TaskVideoRequest, SubtitleRequest, AudioRequest],
     stop_at: str,
 ):
+    if isinstance(body, TaskVideoRequest):
+        tm.apply_material_defaults(body, stop_at=stop_at)
     _record_explicit_director_overrides(body)
     task_id = utils.get_uuid()
     request_id = base.get_task_id(request)
@@ -240,7 +242,13 @@ def create_task(
             "params": body.model_dump(),
         }
         sm.state.update_task(task_id)
-        task_manager.add_task(tm.start, task_id=task_id, params=body, stop_at=stop_at)
+        queued = task_manager.add_task(
+            tm.start, task_id=task_id, params=body, stop_at=stop_at
+        )
+        if isinstance(queued, dict):
+            conversation_id = queued.get("conversation_id")
+            if isinstance(conversation_id, str) and conversation_id:
+                task["conversation_id"] = conversation_id
         logger.success(f"Task created: {utils.to_json(task)}")
         return utils.get_response(200, task)
     except TaskQueueFullError as e:
@@ -262,6 +270,7 @@ def create_task_batch(request: Request, body: BatchTaskCreateRequest):
     request_id = base.get_task_id(request)
     try:
         _record_explicit_director_overrides(body.params)
+        tm.apply_material_defaults(body.params, stop_at="video")
         batch_id, tasks = task_store.get_task_store().enqueue_batch(
             body.subjects,
             body.params,
@@ -290,6 +299,31 @@ def create_task_batch(request: Request, body: BatchTaskCreateRequest):
             ],
         },
     )
+
+
+@router.get("/conversations", summary="列出本地自动剪辑对话")
+def list_conversations(
+    _request: Request,
+    limit: int = Query(100, ge=1, le=200),
+):
+    items = task_store.get_task_store().list_conversations(limit=limit)
+    return utils.get_response(200, {"conversations": items})
+
+
+@router.get("/conversations/{conversation_id}", summary="读取本地自动剪辑对话")
+def get_conversation(
+    request: Request,
+    conversation_id: str = Path(..., description="Conversation ID"),
+):
+    request_id = base.get_task_id(request)
+    data = task_store.get_task_store().get_conversation(conversation_id)
+    if not data:
+        raise HttpException(
+            task_id=conversation_id,
+            status_code=404,
+            message=f"{request_id}: conversation not found",
+        )
+    return utils.get_response(200, data)
 
 
 @router.post("/tasks/actions", summary="Apply an action to multiple tasks")

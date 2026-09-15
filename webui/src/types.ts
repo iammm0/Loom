@@ -8,6 +8,7 @@ export type StreamStep = {
 
 export type TaskDetail = {
   task_id: string;
+  conversation_id?: string;
   status?: string;
   stage?: string;
   progress?: number;
@@ -21,6 +22,27 @@ export type TaskDetail = {
   stream?: { headline?: string; steps?: StreamStep[] };
 };
 
+export type ConversationSummary = {
+  conversation_id: string;
+  title: string;
+  created_at?: string;
+  updated_at?: string;
+  task_count?: number;
+};
+
+export type ConversationTurn = {
+  task_id: string;
+  prompt: string;
+  status?: string;
+  created_at?: string;
+};
+
+export type ConversationDetail = {
+  conversation_id: string;
+  title: string;
+  turns: ConversationTurn[];
+};
+
 export type VoiceGroup = { id: string; label: string; voices: string[] };
 
 export type ChoiceOption = { id: string; label: string; hint?: string };
@@ -28,6 +50,8 @@ export type ChoiceOption = { id: string; label: string; hint?: string };
 export type WorkspaceOptions = {
   voice_groups: VoiceGroup[];
   fonts: string[];
+  seedance_enabled?: boolean;
+  video_sources?: string[];
   upload_post_platforms?: ChoiceOption[];
   upload_post_youtube_privacy?: ChoiceOption[];
 };

@@ -19,6 +19,7 @@ from app.services import (
     generation_report,
     llm,
     material_pipeline,
+    seedance,
     sonilo,
     subtitle,
     task_store,
@@ -103,6 +104,30 @@ def is_task_busy(task: dict | None) -> bool:
         else state == const.TASK_STATE_PROCESSING
     )
     return generation_busy or task.get("cross_post_state") in _ACTIVE_CROSS_POST_STATES
+
+
+def apply_material_defaults(
+    params: VideoParams, *, stop_at: str = "video"
+) -> VideoParams:
+    """Fill stock sources from workspace config; skip AI clips without a video API key."""
+    explicit_sources = material_pipeline.stock_sources_from(params.video_sources)
+    params.video_sources = explicit_sources or material_pipeline.configured_stock_sources()
+    if not params.video_source or params.video_source == "manual_upload":
+        params.video_source = next(
+            (source for source in params.video_sources if source != "local"),
+            params.video_sources[0] if params.video_sources else "pexels",
+        )
+    if (
+        stop_at in {"video", "materials"}
+        and params.material_strategy == "ai_generated"
+        and not seedance.is_enabled()
+    ):
+        logger.info(
+            "video generation API key is not configured; "
+            "automatic editing will use configured online stock materials"
+        )
+        params.material_strategy = "local_first"
+    return params
 
 
 def _force_manual_scene_materials(params: VideoParams) -> None:
@@ -1298,6 +1323,7 @@ def _run_pipeline(task_id, params: VideoParams, stop_at: str = "video"):
 
 def start(task_id, params: VideoParams, stop_at: str = "video"):
     """执行任务流水线，并确保未预期异常也会转换成可查询的失败状态。"""
+    apply_material_defaults(params, stop_at=stop_at)
     generation_report.initialize(
         task_id,
         details={

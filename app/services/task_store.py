@@ -21,7 +21,7 @@ from app.models.schema import VideoParams
 from app.utils import utils
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_LEASE_SECONDS = 120
 _ACTIVE_STATUSES = (
     const.TASK_STATUS_QUEUED,
@@ -67,6 +67,26 @@ def _json_load(value: str | None, default: Any) -> Any:
         return json.loads(value)
     except (TypeError, ValueError):
         return default
+
+
+def _conversation_title(text: str) -> str:
+    first = next(
+        (line.strip() for line in str(text or "").splitlines() if line.strip()),
+        "",
+    )
+    return (first or "未命名剪辑")[:40]
+
+
+def _task_turn_prompt(task: Mapping[str, Any]) -> str:
+    prompt = str(task.get("user_prompt") or "").strip()
+    if prompt:
+        return prompt
+    params = task.get("params") if isinstance(task.get("params"), Mapping) else {}
+    subject = str(task.get("video_subject") or params.get("video_subject") or "").strip()
+    script = str(params.get("video_script") or "").strip()
+    if subject and script and script != subject:
+        return f"{subject}\n{script}"
+    return subject or script or str(task.get("task_id") or "")
 
 
 def _legacy_state(status: str) -> int:
@@ -129,9 +149,17 @@ class TaskStore:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS conversations (
+                    conversation_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS tasks (
                     task_id TEXT PRIMARY KEY,
                     batch_id TEXT,
+                    conversation_id TEXT,
                     request_id TEXT,
                     subject TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL,
@@ -146,7 +174,8 @@ class TaskStore:
                     lease_until REAL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    FOREIGN KEY(batch_id) REFERENCES batches(batch_id) ON DELETE SET NULL
+                    FOREIGN KEY(batch_id) REFERENCES batches(batch_id) ON DELETE SET NULL,
+                    FOREIGN KEY(conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_tasks_status_created
@@ -174,6 +203,173 @@ class TaskStore:
                 connection.execute(
                     "INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,)
                 )
+            elif int(row["version"]) < SCHEMA_VERSION:
+                connection.execute(
+                    "UPDATE schema_version SET version = ?", (SCHEMA_VERSION,)
+                )
+            self._migrate_schema(connection)
+
+    def _migrate_schema(self, connection: sqlite3.Connection) -> None:
+        columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(tasks)").fetchall()
+        }
+        if "conversation_id" not in columns:
+            connection.execute("ALTER TABLE tasks ADD COLUMN conversation_id TEXT")
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_tasks_conversation
+                ON tasks(conversation_id, created_at)
+            """
+        )
+        self.backfill_conversations(connection)
+
+    def backfill_conversations(
+        self, connection: sqlite3.Connection | None = None
+    ) -> int:
+        def _run(conn: sqlite3.Connection) -> int:
+            orphans = conn.execute(
+                """
+                SELECT task_id, subject, created_at, updated_at, payload_json, params_json
+                FROM tasks
+                WHERE conversation_id IS NULL OR conversation_id = ''
+                ORDER BY created_at ASC
+                """
+            ).fetchall()
+            count = 0
+            for row in orphans:
+                payload = _json_load(row["payload_json"], {})
+                params = _json_load(row["params_json"], {})
+                title = _conversation_title(
+                    str(
+                        payload.get("user_prompt")
+                        or row["subject"]
+                        or params.get("video_subject")
+                        or ""
+                    )
+                )
+                conversation_id = str(uuid4())
+                conn.execute(
+                    """
+                    INSERT INTO conversations(
+                        conversation_id, title, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        conversation_id,
+                        title,
+                        row["created_at"] or _utc_now(),
+                        row["updated_at"] or _utc_now(),
+                    ),
+                )
+                conn.execute(
+                    "UPDATE tasks SET conversation_id = ? WHERE task_id = ?",
+                    (conversation_id, row["task_id"]),
+                )
+                count += 1
+            return count
+
+        if connection is not None:
+            return _run(connection)
+        with self.connection() as conn:
+            return _run(conn)
+
+    def ensure_conversation(
+        self,
+        conversation_id: str | None = None,
+        *,
+        title: str = "",
+    ) -> str:
+        conversation_id = str(conversation_id or "").strip() or str(uuid4())
+        now = _utc_now()
+        label = _conversation_title(title)
+        with self.connection() as connection:
+            existing = connection.execute(
+                "SELECT title FROM conversations WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    """
+                    INSERT INTO conversations(
+                        conversation_id, title, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (conversation_id, label, now, now),
+                )
+            else:
+                next_title = existing["title"] or label
+                connection.execute(
+                    """
+                    UPDATE conversations
+                    SET title = ?, updated_at = ?
+                    WHERE conversation_id = ?
+                    """,
+                    (next_title, now, conversation_id),
+                )
+        return conversation_id
+
+    def list_conversations(self, limit: int = 100) -> list[dict[str, Any]]:
+        limit = max(1, min(200, int(limit)))
+        with self.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT c.conversation_id, c.title, c.created_at,
+                       COALESCE(MAX(t.updated_at), c.updated_at) AS updated_at,
+                       COUNT(t.task_id) AS task_count
+                FROM conversations AS c
+                LEFT JOIN tasks AS t ON t.conversation_id = c.conversation_id
+                GROUP BY c.conversation_id, c.title, c.created_at, c.updated_at
+                HAVING COUNT(t.task_id) > 0
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_conversation(self, conversation_id: str) -> dict[str, Any] | None:
+        conversation_id = str(conversation_id or "").strip()
+        if not conversation_id:
+            return None
+        with self.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT conversation_id, title, created_at, updated_at
+                FROM conversations WHERE conversation_id = ?
+                """,
+                (conversation_id,),
+            ).fetchone()
+            tasks = connection.execute(
+                """
+                SELECT * FROM tasks
+                WHERE conversation_id = ?
+                ORDER BY created_at ASC
+                """,
+                (conversation_id,),
+            ).fetchall()
+        if row is None and not tasks:
+            return None
+        items = [self._row_to_task(item) for item in tasks]
+        title = str(row["title"] if row else "") or (
+            _conversation_title(_task_turn_prompt(items[0])) if items else "未命名剪辑"
+        )
+        return {
+            "conversation_id": conversation_id,
+            "title": title,
+            "created_at": row["created_at"] if row else items[0]["created_at"],
+            "updated_at": row["updated_at"] if row else items[-1]["updated_at"],
+            "task_count": len(items),
+            "turns": [
+                {
+                    "task_id": item["task_id"],
+                    "prompt": _task_turn_prompt(item),
+                    "status": item.get("status"),
+                    "created_at": item.get("created_at"),
+                }
+                for item in items
+            ],
+        }
 
     def create_batch(self, name: str = "") -> str:
         batch_id = str(uuid4())
@@ -210,6 +406,7 @@ class TaskStore:
         *,
         task_id: str | None = None,
         batch_id: str | None = None,
+        conversation_id: str | None = None,
         request_id: str | None = None,
         stop_at: str = "video",
         payload: Mapping[str, Any] | None = None,
@@ -220,11 +417,29 @@ class TaskStore:
             if isinstance(params, VideoParams)
             else dict(params)
         )
+        user_prompt = str(
+            (payload or {}).get("user_prompt")
+            or params_data.pop("user_prompt", "")
+            or ""
+        ).strip()
+        conversation_id = str(
+            conversation_id or params_data.pop("conversation_id", "") or ""
+        ).strip()
         subject = str(
             params_data.get("video_subject") or params_data.get("video_script") or ""
         )
+        conversation_id = self.ensure_conversation(
+            conversation_id,
+            title=user_prompt or subject,
+        )
         now = _utc_now()
-        payload = {"stop_at": stop_at, **dict(payload or {})}
+        payload = {
+            "stop_at": stop_at,
+            **dict(payload or {}),
+            "conversation_id": conversation_id,
+        }
+        if user_prompt:
+            payload["user_prompt"] = user_prompt
 
         with self.connection() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -240,11 +455,12 @@ class TaskStore:
                 connection.execute(
                     """
                     INSERT INTO tasks(
-                        task_id, batch_id, request_id, subject, status, stage, state,
+                        task_id, batch_id, conversation_id, request_id, subject, status, stage, state,
                         progress, params_json, payload_json, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 'queued', ?, 0, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, 0, ?, ?, ?, ?)
                     ON CONFLICT(task_id) DO UPDATE SET
                         batch_id = excluded.batch_id,
+                        conversation_id = COALESCE(excluded.conversation_id, tasks.conversation_id),
                         request_id = excluded.request_id,
                         subject = excluded.subject,
                         status = excluded.status,
@@ -261,6 +477,7 @@ class TaskStore:
                     (
                         task_id,
                         batch_id,
+                        conversation_id,
                         request_id,
                         subject,
                         const.TASK_STATUS_QUEUED,
@@ -270,6 +487,14 @@ class TaskStore:
                         now,
                         now,
                     ),
+                )
+                connection.execute(
+                    """
+                    UPDATE conversations
+                    SET updated_at = ?, title = CASE WHEN title = '' THEN ? ELSE title END
+                    WHERE conversation_id = ?
+                    """,
+                    (now, _conversation_title(user_prompt or subject), conversation_id),
                 )
                 connection.execute("COMMIT")
             except Exception:
@@ -296,6 +521,9 @@ class TaskStore:
             else dict(params)
         )
         batch_id = self.create_batch(batch_name)
+        conversation_id = self.ensure_conversation(
+            title=batch_name or (normalized[0] if normalized else "")
+        )
         tasks = []
         try:
             for subject in normalized:
@@ -306,6 +534,7 @@ class TaskStore:
                     self.enqueue(
                         item,
                         batch_id=batch_id,
+                        conversation_id=conversation_id,
                         request_id=request_id,
                     )
                 )
@@ -598,6 +827,9 @@ class TaskStore:
             {
                 "task_id": row["task_id"],
                 "batch_id": row["batch_id"],
+                "conversation_id": row["conversation_id"]
+                or payload.get("conversation_id")
+                or "",
                 "request_id": row["request_id"],
                 "video_subject": row["subject"],
                 "status": row["status"],
@@ -1670,65 +1902,16 @@ class TaskStore:
             connection.execute(
                 "DELETE FROM batches WHERE batch_id NOT IN (SELECT DISTINCT batch_id FROM tasks WHERE batch_id IS NOT NULL)"
             )
-        return cursor.rowcount == 1
-
-    def import_history(self, tasks_root: str | os.PathLike[str] | None = None) -> int:
-        root = Path(tasks_root or utils.task_dir())
-        if not root.is_dir():
-            return 0
-        imported = 0
-        for entry in root.iterdir():
-            if (
-                not entry.is_dir()
-                or entry.name.startswith(".")
-                or self.get_task(entry.name)
-            ):
-                continue
-            finals = sorted(entry.glob("final-*.mp4"))
-            script_data = _json_load(
-                (entry / "script.json").read_text(encoding="utf-8")
-                if (entry / "script.json").is_file()
-                else "",
-                {},
-            )
-            params = script_data.get("params") if isinstance(script_data, dict) else {}
-            params = params if isinstance(params, dict) else {}
-            now = datetime.fromtimestamp(
-                entry.stat().st_mtime, timezone.utc
-            ).isoformat()
-            status = const.TASK_STATUS_COMPLETED if finals else const.TASK_STATUS_FAILED
-            payload = {
-                "videos": [str(path) for path in finals],
-                "script": script_data.get("script", "")
-                if isinstance(script_data, dict)
-                else "",
-                "error": "historical task has no final video" if not finals else "",
-            }
-            with self.connection() as connection:
-                connection.execute(
-                    """
-                    INSERT OR IGNORE INTO tasks(
-                        task_id, subject, status, stage, state, progress, params_json,
-                        payload_json, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        entry.name,
-                        str(
-                            params.get("video_subject") or script_data.get("script", "")
-                        )[:200],
-                        status,
-                        "completed" if finals else "failed",
-                        _legacy_state(status),
-                        100 if finals else 0,
-                        _json_dump(params),
-                        _json_dump(payload),
-                        now,
-                        now,
-                    ),
+            connection.execute(
+                """
+                DELETE FROM conversations
+                WHERE conversation_id NOT IN (
+                    SELECT DISTINCT conversation_id FROM tasks
+                    WHERE conversation_id IS NOT NULL AND conversation_id != ''
                 )
-            imported += 1
-        return imported
+                """
+            )
+        return cursor.rowcount == 1
 
 
 _default_store: TaskStore | None = None
@@ -1748,9 +1931,6 @@ def get_task_store() -> TaskStore:
                     database_path,
                     max_queued_tasks=int(config.app.get("max_queued_tasks", 100)),
                 )
-                imported = _default_store.import_history()
-                if imported:
-                    logger.info(f"imported {imported} historical tasks into SQLite")
                 duration_recovered = (
                     _default_store.recover_insufficient_visual_duration_failures()
                 )

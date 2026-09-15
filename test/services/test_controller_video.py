@@ -217,6 +217,30 @@ class TestVideoControllerTasks(unittest.TestCase):
             stop_at="audio",
         )
 
+    def test_list_conversations_returns_local_auto_edit_threads(self):
+        store = MagicMock()
+        store.list_conversations.return_value = [
+            {"conversation_id": "c1", "title": "雨天窗边的手冲咖啡", "task_count": 1}
+        ]
+        with patch.object(
+            video_controller.task_store, "get_task_store", return_value=store
+        ):
+            response = video_controller.list_conversations(self._request())
+
+        self.assertEqual(response["status"], 200)
+        self.assertEqual(response["data"]["conversations"][0]["conversation_id"], "c1")
+
+    def test_get_conversation_not_found(self):
+        store = MagicMock()
+        store.get_conversation.return_value = None
+        with patch.object(
+            video_controller.task_store, "get_task_store", return_value=store
+        ):
+            with self.assertRaises(HttpException) as raised:
+                video_controller.get_conversation(self._request(), conversation_id="missing")
+
+        self.assertEqual(raised.exception.status_code, 404)
+
     def test_create_task_allows_oversized_custom_script_before_queue(self):
         body = video_controller.TaskVideoRequest(
             video_subject="Long",

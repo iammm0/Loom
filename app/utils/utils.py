@@ -124,6 +124,104 @@ def font_dir(sub_dir: str = ""):
     return d
 
 
+DEFAULT_SUBTITLE_FONT = "STHeitiMedium.ttc"
+_FONT_EXTENSIONS = (".ttf", ".ttc", ".otf")
+_FONT_ALIASES = {
+    "STHeitiMedium.ttc": (
+        "STHeiti Medium.ttc",
+        "/System/Library/Fonts/STHeiti Medium.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+        "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    ),
+    "MicrosoftYaHeiBold.ttc": (
+        r"C:\Windows\Fonts\msyhbd.ttc",
+        r"C:\Windows\Fonts\msyh.ttc",
+        r"C:\Windows\Fonts\simhei.ttf",
+    ),
+}
+_SYSTEM_FALLBACK_FONTS = (
+    "/System/Library/Fonts/STHeiti Medium.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/System/Library/Fonts/Supplemental/Songti.ttc",
+    "/Library/Fonts/Arial Unicode.ttf",
+    r"C:\Windows\Fonts\msyh.ttc",
+    r"C:\Windows\Fonts\simhei.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+)
+
+
+def _pillow_can_open_font(path: str) -> bool:
+    try:
+        from PIL import ImageFont
+
+        ImageFont.truetype(path, 30)
+        return True
+    except Exception:
+        return False
+
+
+def _iter_bundled_fonts() -> list[str]:
+    fonts_dir = font_dir()
+    try:
+        names = [
+            name
+            for name in os.listdir(fonts_dir)
+            if name.lower().endswith(_FONT_EXTENSIONS)
+        ]
+    except OSError:
+        return []
+    return [os.path.join(fonts_dir, name) for name in sorted(names)]
+
+
+def resolve_subtitle_font(font_name: str = "") -> str:
+    """Resolve a subtitle font the current machine can actually open."""
+    requested = os.path.basename(str(font_name or "").strip()) or DEFAULT_SUBTITLE_FONT
+    fonts_dir = font_dir()
+    candidates: list[str] = []
+    raw = str(font_name or "").strip()
+    if raw and os.path.isfile(raw):
+        candidates.append(raw)
+    candidates.append(os.path.join(fonts_dir, requested))
+    for alias in _FONT_ALIASES.get(requested, ()):
+        candidates.append(
+            alias if os.path.isabs(alias) else os.path.join(fonts_dir, alias)
+        )
+    candidates.extend(_iter_bundled_fonts())
+    candidates.extend(_SYSTEM_FALLBACK_FONTS)
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        path = os.path.abspath(os.path.expanduser(candidate))
+        if path in seen or not os.path.isfile(path):
+            continue
+        seen.add(path)
+        if _pillow_can_open_font(path):
+            return path
+    raise ValueError(
+        "no usable subtitle font found. Add a .ttf/.ttc file to resource/fonts "
+        f"or install a CJK system font (requested: {requested})"
+    )
+
+
+def list_subtitle_font_names() -> list[str]:
+    names = [os.path.basename(path) for path in _iter_bundled_fonts()]
+    if DEFAULT_SUBTITLE_FONT not in names:
+        try:
+            resolve_subtitle_font(DEFAULT_SUBTITLE_FONT)
+            names.insert(0, DEFAULT_SUBTITLE_FONT)
+        except ValueError:
+            pass
+    if names:
+        return names
+    try:
+        return [os.path.basename(resolve_subtitle_font())]
+    except ValueError:
+        return []
+
+
 def song_dir(sub_dir: str = ""):
     d = resource_dir("songs")
     if sub_dir:

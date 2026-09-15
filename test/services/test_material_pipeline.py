@@ -18,6 +18,21 @@ def _params():
     )
 
 
+def test_configured_sources_use_workspace_online_sources_when_request_omits_them(monkeypatch):
+    monkeypatch.setitem(
+        material_pipeline.config.app,
+        "video_sources",
+        ["pexels", "coverr"],
+    )
+    params = VideoParams(
+        video_subject="城市咖啡",
+        material_strategy="local_first",
+        video_sources=["manual_upload"],
+    )
+
+    assert material_pipeline._configured_sources(params) == ["pexels", "coverr"]
+
+
 def test_scene_plan_preserves_script_order_and_duration():
     scenes = material_pipeline.build_scene_plan(
         "第一段。第二段。第三段。第四段。",

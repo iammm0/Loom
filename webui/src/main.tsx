@@ -34,6 +34,12 @@ const indexRoute = createRoute({
 const generateRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/generate",
+  validateSearch: (search: Record<string, unknown>): { c?: string; new?: boolean } => {
+    const next: { c?: string; new?: boolean } = {};
+    if (typeof search.c === "string" && search.c) next.c = search.c;
+    if (search.new === true || search.new === "1") next.new = true;
+    return next;
+  },
   component: GeneratePage,
 });
 

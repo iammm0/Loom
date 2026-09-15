@@ -665,15 +665,10 @@ def prepare_cli_files(params: VideoParams, stop_at: str) -> None:
                 ) from exc
 
     if params.subtitle_enabled and params.font_name and stop_at == "video":
-        font_path = _resolve_managed_resource_file(
-            params.font_name,
-            resource_dir=utils.font_dir(),
-            description="subtitle font",
-        )
-        if not font_path.lower().endswith((".ttf", ".ttc")):
-            raise ValueError("subtitle font must use the .ttf or .ttc extension")
-        # 下游根据 resource/fonts 内的文件名拼接路径，因此仍保留纯文件名。
-        params.font_name = os.path.basename(font_path)
+        font_path = utils.resolve_subtitle_font(params.font_name)
+        if not font_path.lower().endswith((".ttf", ".ttc", ".otf")):
+            raise ValueError("subtitle font must use the .ttf, .ttc, or .otf extension")
+        params.font_name = params.font_name.strip() or utils.DEFAULT_SUBTITLE_FONT
 
     if params.video_source != "local" or stop_at not in {"materials", "video"}:
         return

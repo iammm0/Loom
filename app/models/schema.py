@@ -243,7 +243,8 @@ class BaseResponse(BaseModel):
 
 
 class TaskVideoRequest(VideoParams, BaseModel):
-    pass
+    conversation_id: str = Field(default="", max_length=64)
+    user_prompt: str = Field(default="", max_length=20000)
 
 
 class BatchTaskCreateRequest(BaseModel):
@@ -289,6 +290,13 @@ class SettingsUpdateRequest(BaseModel):
     ui: dict[str, Any] = Field(default_factory=dict)
 
 
+class LLMModelsProbeRequest(BaseModel):
+    provider: str = ""
+    api_key: str = ""
+    base_url: str = ""
+    extra: dict[str, str] = Field(default_factory=dict)
+
+
 class SupplementalSceneApprovalRequest(BaseModel):
     prompts: dict[str, str] = Field(default_factory=dict)
 
@@ -320,6 +328,8 @@ class VideoSocialMetadataRequest(VideoSocialMetadataParams, BaseModel):
 class TaskResponse(BaseResponse):
     class TaskResponseData(BaseModel):
         task_id: str
+        conversation_id: str = ""
+        request_id: str = ""
 
     data: TaskResponseData
 
@@ -344,6 +354,7 @@ class TaskStatusData(BaseModel):
     status: str = "processing"
     stage: str = ""
     batch_id: Optional[str] = None
+    conversation_id: Optional[str] = None
     attempt_count: int = 0
     videos: Optional[List[str]] = None
     original_videos: Optional[List[str]] = None

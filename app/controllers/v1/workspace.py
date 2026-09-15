@@ -1,5 +1,3 @@
-import os
-
 from fastapi import Request
 
 from app.config import config
@@ -14,8 +12,8 @@ from app.config.config import (
 )
 from app.controllers.v1.base import new_router
 from app.models.llm_provider import LLM_PROVIDER_REGISTRY
-from app.models.schema import SettingsUpdateRequest
-from app.services import billing, seedance as seedance_service, task_store, voice
+from app.models.schema import LLMModelsProbeRequest, SettingsUpdateRequest
+from app.services import billing, llm, seedance as seedance_service, task_store, voice
 from app.utils import utils
 
 router = new_router()
@@ -59,35 +57,12 @@ def _settings_payload() -> dict:
 
 
 def _list_fonts() -> list[str]:
-    fonts_dir = utils.font_dir()
-    try:
-        names = [
-            name
-            for name in os.listdir(fonts_dir)
-            if name.lower().endswith((".ttf", ".ttc", ".otf"))
-        ]
-    except OSError:
-        return []
-    return sorted(names)
+    return utils.list_subtitle_font_names()
 
 
 def _voice_groups() -> list[dict]:
-    azure_voices = voice.get_all_azure_voices()
-    edge = [item for item in azure_voices if "-V2" not in item]
-    azure_v2 = [item for item in azure_voices if "-V2" in item]
     return [
         {"id": "mimo", "label": "小米 MiMo", "voices": voice.get_mimo_voices()},
-        {"id": "edge", "label": "Edge TTS", "voices": edge},
-        {"id": "azure", "label": "Azure 语音", "voices": azure_v2},
-        {"id": "siliconflow", "label": "硅基流动", "voices": voice.get_siliconflow_voices()},
-        {"id": "gemini", "label": "Gemini", "voices": voice.get_gemini_voices()},
-        {
-            "id": "elevenlabs",
-            "label": "ElevenLabs",
-            "voices": voice.get_elevenlabs_voices(str(elevenlabs.get("api_key") or "")),
-        },
-        {"id": "chatterbox", "label": "Chatterbox", "voices": voice.get_chatterbox_voices()},
-        {"id": "none", "label": "无配音", "voices": [voice.NO_VOICE_NAME]},
     ]
 
 
@@ -158,6 +133,11 @@ def get_workspace_options(_request: Request):
                 {"id": item["id"], "label": item["label"]}
                 for item in seedance_service.configured_model_options()
             ],
+            "seedance_enabled": seedance_service.is_enabled(),
+            "video_sources": list(
+                config.app.get("video_sources")
+                or ["local", "pexels", "pixabay", "coverr"]
+            ),
             "upload_post_platforms": [
                 {"id": "tiktok", "label": "TikTok", "hint": "短视频"},
                 {"id": "instagram", "label": "Instagram", "hint": "Reels"},
@@ -170,6 +150,17 @@ def get_workspace_options(_request: Request):
             ],
         },
     )
+
+
+@router.post("/workspace/llm-models", summary="探测文案 LLM 可用模型")
+def probe_llm_models(_request: Request, body: LLMModelsProbeRequest):
+    payload = llm.list_available_models(
+        body.provider,
+        api_key=body.api_key,
+        base_url=body.base_url,
+        extra=body.extra,
+    )
+    return utils.get_response(200, payload)
 
 
 @router.get("/billing/seedance", summary="查询 Seedance 账单")

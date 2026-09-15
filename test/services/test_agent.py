@@ -24,6 +24,7 @@ def test_agent_auto_fill_uses_material_tool_not_human_gate():
     params = VideoParams(video_subject="Coffee", material_strategy="ai_generated")
     state = MemoryState()
     with (
+        patch.object(tm.seedance, "is_enabled", return_value=True),
         patch.object(tm, "generate_script", return_value="script"),
         patch.object(tm, "prepare_director_plan", return_value={"source": "test"}),
         patch.object(tm, "save_script_data"),
@@ -65,6 +66,7 @@ def test_match_library_auto_fills_missing_scenes_with_seedance():
 
     with (
         patch.object(tm, "get_video_materials", side_effect=fake_materials),
+        patch("app.tools.production.seedance.is_enabled", return_value=True),
         patch(
             "app.tools.production.generate_scene_video",
             return_value=ToolResult(
@@ -105,6 +107,7 @@ def test_auto_fill_fails_when_seedance_cannot_generate():
 
     with (
         patch.object(tm, "get_video_materials", return_value=None),
+        patch("app.tools.production.seedance.is_enabled", return_value=True),
         patch(
             "app.tools.production.generate_scene_video",
             return_value=ToolResult(ok=False, error="Seedance is not configured"),
@@ -118,3 +121,27 @@ def test_auto_fill_fails_when_seedance_cannot_generate():
 
     assert result.ok is False
     assert "Seedance" in (result.error or "")
+
+
+def test_match_library_skips_seedance_when_video_api_key_missing():
+    params = VideoParams(video_subject="Coffee", material_strategy="local_first")
+    state = MemoryState()
+    state.update_task(
+        "fill-online",
+        missing_scenes=[{"scene_index": 0, "video_prompt": "a cup", "target_duration": 2}],
+    )
+    generate = MagicMock()
+
+    with (
+        patch.object(tm, "get_video_materials", return_value=None),
+        patch("app.tools.production.seedance.is_enabled", return_value=False),
+        patch("app.tools.production.generate_scene_video", generate),
+        patch.object(tm.sm, "state", state),
+    ):
+        result = match_library_materials(
+            ToolContext(task_id="fill-online", params=params, extras={"script": "s"})
+        )
+
+    assert result.ok is False
+    assert "在线素材" in (result.error or "")
+    generate.assert_not_called()

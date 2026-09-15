@@ -1,6 +1,9 @@
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { api } from "./api";
 import { Icons } from "./icons";
+import type { ConversationSummary } from "./types";
 
 const NAV = [
   { to: "/generate", label: "自动剪辑", icon: Icons.sparkle, event: "loom-new-session" },
@@ -15,7 +18,15 @@ const NAV = [
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const search = useRouterState({ select: (state) => state.location.search }) as {
+    c?: string;
+  };
   const flush = pathname.startsWith("/generate");
+  const conversations = useQuery({
+    queryKey: ["conversations"],
+    queryFn: () => api.get<{ conversations: ConversationSummary[] }>("/api/v1/conversations"),
+    refetchInterval: 4000,
+  });
 
   return (
     <div className={`app-shell ${collapsed ? "collapsed" : ""}`}>
@@ -40,8 +51,9 @@ export function Layout() {
                 to={item.to}
                 className={`nav-button ${pathname.startsWith(item.to) ? "active" : ""}`}
                 title={item.label}
-                onClick={() => {
+                onClick={(event) => {
                   if (item.event && pathname.startsWith(item.to)) {
+                    event.preventDefault();
                     window.dispatchEvent(new Event(item.event));
                   }
                 }}
@@ -52,6 +64,22 @@ export function Layout() {
             );
           })}
         </nav>
+        {collapsed ? null : (
+          <div className="sidebar-chats">
+            <div className="sidebar-chats-label">对话</div>
+            {(conversations.data?.conversations || []).map((item) => (
+              <Link
+                key={item.conversation_id}
+                to="/generate"
+                search={{ c: item.conversation_id }}
+                className={`chat-link ${search.c === item.conversation_id ? "active" : ""}`}
+                title={item.title}
+              >
+                {item.title || "未命名剪辑"}
+              </Link>
+            ))}
+          </div>
+        )}
       </aside>
       <main className={`content ${flush ? "flush" : ""}`}>
         <Outlet />

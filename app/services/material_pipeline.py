@@ -12,6 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from loguru import logger
 
+from app.config import config
 from app.models import const
 from app.models.schema import VideoAspect, VideoParams
 from app.services import llm, material, video, vision
@@ -21,6 +22,24 @@ from app.utils import utils
 
 
 ONLINE_SOURCES = ("pexels", "pixabay", "coverr")
+STOCK_SOURCES = ("local", *ONLINE_SOURCES)
+DEFAULT_STOCK_SOURCES = ["local", "pexels", "pixabay", "coverr"]
+
+
+def stock_sources_from(requested: Iterable[str] | None) -> list[str]:
+    """Keep only the built-in library and stock video providers, in fixed order."""
+    result: list[str] = []
+    for source in STOCK_SOURCES:
+        if source in (requested or []) and source not in result:
+            result.append(source)
+    return result
+
+
+def configured_stock_sources() -> list[str]:
+    """Return workspace-enabled stock sources, or the default mix when unset."""
+    return stock_sources_from(config.app.get("video_sources")) or list(
+        DEFAULT_STOCK_SOURCES
+    )
 
 
 def _task_cancel_requested(store, task_id: str) -> bool:
@@ -224,13 +243,13 @@ def build_scene_plan(
 
 
 def _configured_sources(params: VideoParams) -> list[str]:
-    requested = list(params.video_sources or [])
     if params.material_strategy != "local_first":
         requested = [params.video_source or "pexels"]
-    result = []
-    for source in ("local", *ONLINE_SOURCES):
-        if source in requested and source not in result:
-            result.append(source)
+    else:
+        requested = list(params.video_sources or [])
+    result = stock_sources_from(requested)
+    if params.material_strategy == "local_first" and not result:
+        return configured_stock_sources()
     return result
 
 

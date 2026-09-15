@@ -6,7 +6,7 @@ import tomllib
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from pydantic import ValidationError
 
@@ -487,6 +487,39 @@ class TestLiteLLMProvider(unittest.TestCase):
         )
         self.assertTrue(pollinations.requires_api_key)
         self.assertEqual(pollinations.adapter, "openai_compatible")
+
+    def test_list_available_models_requires_api_key(self):
+        result = llm.list_available_models(
+            "openai", api_key="", base_url="https://api.openai.com/v1"
+        )
+        self.assertEqual(result["error"], "请先填写 API Key")
+        self.assertEqual(result["models"][0]["id"], "gpt-5.5")
+
+    def test_list_available_models_filters_non_chat_ids(self):
+        page = MagicMock()
+        page.data = [
+            MagicMock(id="gpt-4o-mini"),
+            MagicMock(id="text-embedding-3-small"),
+            MagicMock(id="whisper-1"),
+        ]
+        client = MagicMock()
+        client.models.list.return_value = page
+        with patch.object(llm, "OpenAI", return_value=client):
+            result = llm.list_available_models(
+                "openai",
+                api_key="sk-test",
+                base_url="https://api.openai.com/v1",
+            )
+        ids = [item["id"] for item in result["models"]]
+        self.assertEqual(result["error"], "")
+        self.assertIn("gpt-4o-mini", ids)
+        self.assertNotIn("text-embedding-3-small", ids)
+        self.assertNotIn("whisper-1", ids)
+
+    def test_list_available_models_unknown_provider(self):
+        result = llm.list_available_models("not-a-provider")
+        self.assertEqual(result["models"], [])
+        self.assertIn("不支持", result["error"])
 
     def test_provider_defaults_are_not_persisted_as_user_overrides(self):
         """默认值只用于运行和展示，只有不同值才应写入用户配置。"""

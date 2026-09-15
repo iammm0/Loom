@@ -25,6 +25,47 @@ def test_queue_persists_across_store_instances(tmp_path):
     assert restored["status"] == const.TASK_STATUS_QUEUED
     assert restored["params"]["video_subject"] == "Coffee"
     assert restored["stop_at"] == "audio"
+    assert restored["conversation_id"]
+
+
+def test_enqueue_attaches_local_tasks_to_conversation(tmp_path):
+    store = TaskStore(tmp_path / "app.db")
+    first = store.enqueue(
+        _params("Coffee"),
+        payload={"user_prompt": "雨天窗边的手冲咖啡\n文案"},
+    )
+    second = store.enqueue(
+        _params("Follow-up"),
+        conversation_id=first["conversation_id"],
+        payload={"user_prompt": "再短一点"},
+    )
+
+    assert first["conversation_id"]
+    assert second["conversation_id"] == first["conversation_id"]
+    conversation = store.get_conversation(first["conversation_id"])
+    assert [turn["prompt"] for turn in conversation["turns"]] == [
+        "雨天窗边的手冲咖啡\n文案",
+        "再短一点",
+    ]
+    listed = store.list_conversations()
+    assert listed[0]["conversation_id"] == first["conversation_id"]
+    assert listed[0]["task_count"] == 2
+
+
+def test_existing_tasks_are_backfilled_into_conversations(tmp_path):
+    database = tmp_path / "app.db"
+    store = TaskStore(database)
+    task = store.enqueue(_params("历史剪辑"))
+    with store.connection() as connection:
+        connection.execute("UPDATE tasks SET conversation_id = NULL")
+        connection.execute("DELETE FROM conversations")
+
+    restored = TaskStore(database).get_task(task["task_id"])
+    conversation = TaskStore(database).get_conversation(restored["conversation_id"])
+
+    assert restored["conversation_id"]
+    assert conversation["turns"][0]["task_id"] == task["task_id"]
+    assert "历史剪辑" in conversation["turns"][0]["prompt"]
 
 
 def test_enqueue_persists_preflight_payload(tmp_path):
@@ -227,25 +268,6 @@ def test_batch_uses_shared_params_and_distinct_subjects(tmp_path):
     filtered, total = store.list_tasks(page_size=10, batch_id=batch_id)
     assert total == 2
     assert {task["task_id"] for task in filtered} == {task["task_id"] for task in tasks}
-
-
-def test_history_import_registers_existing_final_video(tmp_path):
-    tasks_root = tmp_path / "tasks"
-    task_dir = tasks_root / "history-task"
-    task_dir.mkdir(parents=True)
-    (task_dir / "final-1.mp4").write_bytes(b"video")
-    (task_dir / "script.json").write_text(
-        json.dumps({"script": "History", "params": {"video_subject": "Old"}}),
-        encoding="utf-8",
-    )
-    store = TaskStore(tmp_path / "app.db")
-
-    imported = store.import_history(tasks_root)
-
-    assert imported == 1
-    task = store.get_task("history-task")
-    assert task["status"] == const.TASK_STATUS_COMPLETED
-    assert Path(task["videos"][0]).name == "final-1.mp4"
 
 
 def test_all_scene_uploads_are_required_before_task_returns_to_queue(

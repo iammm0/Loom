@@ -67,9 +67,10 @@ def preflight_node(state: AgentState) -> AgentState:
         "director_plan": checkpoint.get("director_plan") or state.get("director_plan") or {},
         "timeline": checkpoint.get("timeline") or state.get("timeline"),
     }
+    tm.apply_material_defaults(params, stop_at=stop_at)
     if params.material_strategy == "ai_generated":
         tm._force_manual_scene_materials(params)
-        state = {**state, "params": _dump_params(params)}
+    state = {**state, "params": _dump_params(params)}
     logger.info(f"start task: {task_id}, stop_at: {stop_at}")
     sm.state.update_task(
         task_id,

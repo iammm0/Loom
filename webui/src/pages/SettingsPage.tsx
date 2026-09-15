@@ -18,17 +18,35 @@ type Options = {
   seedance_models?: { id: string; label: string }[];
 };
 
+type ModelOption = { id: string; label: string };
+
 type Settings = {
   app: Record<string, unknown>;
   seedance: Record<string, unknown>;
-  azure: Record<string, unknown>;
-  siliconflow: Record<string, unknown>;
-  elevenlabs: Record<string, unknown>;
-  chatterbox: Record<string, unknown>;
   ui: Record<string, unknown>;
 };
 
 type TabId = "seedance" | "materials" | "llm" | "tts";
+
+const STOCK_SOURCES: { id: string; label: string }[] = [
+  { id: "local", label: "本地素材库" },
+  { id: "pexels", label: "Pexels" },
+  { id: "pixabay", label: "Pixabay" },
+  { id: "coverr", label: "Coverr" },
+];
+
+function parseSources(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  return ["local", "pexels", "pixabay", "coverr"];
+}
+
+function toggleSource(current: string[], id: string): string[] {
+  if (current.includes(id)) {
+    const next = current.filter((item) => item !== id);
+    return next.length ? next : current;
+  }
+  return STOCK_SOURCES.map((item) => item.id).filter((item) => item === id || current.includes(item));
+}
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "seedance", label: "视频生成模型" },
@@ -51,16 +69,21 @@ function textToKeys(text: string): string[] {
 
 function Field({
   label,
+  name,
   hint,
   children,
 }: {
   label: string;
+  name?: string;
   hint?: string;
   children: ReactNode;
 }) {
   return (
     <label className="settings-field">
-      <span className="settings-label">{label}</span>
+      <span className="settings-label">
+        {label}
+        {name ? <code className="sheet-param">{name}</code> : null}
+      </span>
       {children}
       {hint ? <span className="settings-hint">{hint}</span> : null}
     </label>
@@ -72,6 +95,9 @@ export function SettingsPage() {
   const [tab, setTab] = useState<TabId>("seedance");
   const [form, setForm] = useState<Record<string, string>>({});
   const [savedAt, setSavedAt] = useState("");
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [probeError, setProbeError] = useState("");
+  const [probing, setProbing] = useState(false);
 
   const options = useQuery({
     queryKey: ["workspace-options"],
@@ -102,16 +128,13 @@ export function SettingsPage() {
     if (!query.data) return;
     const app = query.data.app;
     const seedance = query.data.seedance || {};
-    const azure = query.data.azure || {};
-    const siliconflow = query.data.siliconflow || {};
-    const elevenlabs = query.data.elevenlabs || {};
-    const chatterbox = query.data.chatterbox || {};
     const currentProvider = String(app.llm_provider || "moonshot");
     setForm({
       llm_provider: currentProvider,
       api_key: String(app[`${currentProvider}_api_key`] || ""),
       base_url: String(app[`${currentProvider}_base_url`] || ""),
       model_name: String(app[`${currentProvider}_model_name`] || ""),
+      video_sources: parseSources(app.video_sources).join(","),
       pexels_api_keys: keysToText(app.pexels_api_keys),
       pixabay_api_keys: keysToText(app.pixabay_api_keys),
       coverr_api_keys: keysToText(app.coverr_api_keys),
@@ -120,14 +143,6 @@ export function SettingsPage() {
       seedance_base_url: String(seedance.base_url || ""),
       seedance_model_id: String(seedance.model_id || ""),
       seedance_resolution: String(seedance.resolution || "720p"),
-      azure_speech_key: String(azure.speech_key || ""),
-      azure_speech_region: String(azure.speech_region || ""),
-      siliconflow_api_key: String(siliconflow.api_key || ""),
-      elevenlabs_api_key: String(elevenlabs.api_key || ""),
-      elevenlabs_model_id: String(elevenlabs.model_id || "eleven_multilingual_v2"),
-      chatterbox_base_url: String(chatterbox.base_url || ""),
-      chatterbox_api_key: String(chatterbox.api_key || ""),
-      chatterbox_model_id: String(chatterbox.model_id || "chatterbox"),
       mimo_api_key: String(app.mimo_api_key || ""),
       mimo_base_url: String(app.mimo_base_url || ""),
     });
@@ -150,6 +165,51 @@ export function SettingsPage() {
       };
     });
   }, [provider, providerId, query.data]);
+
+  useEffect(() => {
+    if (tab !== "llm" || !provider) return;
+    const extras: Record<string, string> = {};
+    for (const field of provider.extra_fields || []) {
+      extras[field.suffix] = form[`extra_${field.suffix}`] || "";
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setProbing(true);
+      void api
+        .post<{ models: ModelOption[]; error?: string }>("/api/v1/workspace/llm-models", {
+          provider: providerId,
+          api_key: form.api_key || "",
+          base_url: form.base_url || "",
+          extra: extras,
+        })
+        .then((data) => {
+          if (cancelled) return;
+          setModels(data.models || []);
+          setProbeError(data.error || "");
+        })
+        .catch((error: Error) => {
+          if (cancelled) return;
+          setModels([]);
+          setProbeError(error.message || "模型探测失败");
+        })
+        .finally(() => {
+          if (!cancelled) setProbing(false);
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    form.api_key,
+    form.base_url,
+    provider,
+    providerId,
+    tab,
+    JSON.stringify(
+      (provider?.extra_fields || []).map((field) => form[`extra_${field.suffix}`] || ""),
+    ),
+  ]);
 
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
 
@@ -201,6 +261,7 @@ export function SettingsPage() {
           const app: Record<string, unknown> = {
             ...(query.data.app || {}),
             llm_provider: current,
+            video_sources: parseSources((form.video_sources || "").split(",")),
             pexels_api_keys: textToKeys(form.pexels_api_keys || ""),
             pixabay_api_keys: textToKeys(form.pixabay_api_keys || ""),
             coverr_api_keys: textToKeys(form.coverr_api_keys || ""),
@@ -223,26 +284,6 @@ export function SettingsPage() {
               model_id: form.seedance_model_id || "",
               resolution: form.seedance_resolution || "720p",
             },
-            azure: {
-              ...(query.data.azure || {}),
-              speech_key: form.azure_speech_key || "",
-              speech_region: form.azure_speech_region || "",
-            },
-            siliconflow: {
-              ...(query.data.siliconflow || {}),
-              api_key: form.siliconflow_api_key || "",
-            },
-            elevenlabs: {
-              ...(query.data.elevenlabs || {}),
-              api_key: form.elevenlabs_api_key || "",
-              model_id: form.elevenlabs_model_id || "eleven_multilingual_v2",
-            },
-            chatterbox: {
-              ...(query.data.chatterbox || {}),
-              base_url: form.chatterbox_base_url || "",
-              api_key: form.chatterbox_api_key || "",
-              model_id: form.chatterbox_model_id || "chatterbox",
-            },
           });
         }}
       >
@@ -250,7 +291,9 @@ export function SettingsPage() {
           <div className="settings-section stack" role="tabpanel">
             <div className="settings-section-head">
               <h2>视频生成模型</h2>
-              <p className="muted">用于缺镜时自动调用 Seedance 生成分镜视频。</p>
+              <p className="muted">
+                用于缺镜时自动调用 Seedance 生成分镜视频。未填写 API Key 时，自动剪辑会改用「视频素材」中启用的在线素材源。
+              </p>
             </div>
             <Field label="API Key" hint="可留空以回退火山方舟 / ARK 环境变量">
               <input
@@ -303,23 +346,44 @@ export function SettingsPage() {
           <div className="settings-section stack" role="tabpanel">
             <div className="settings-section-head">
               <h2>视频素材与素材库</h2>
-              <p className="muted">在线素材密钥可多行填写，系统会自动轮换；本地素材库在「素材」页管理。</p>
+              <p className="muted">
+                勾选自动剪辑可用的素材源。未配置视频生成 API Key 时，系统会按这些来源检索在线素材并完成剪辑。
+              </p>
             </div>
-            <Field label="Pexels API Keys" hint="每行一个密钥">
+            <div className="settings-field">
+              <span className="settings-label">启用素材源</span>
+              <div className="settings-checks">
+                {STOCK_SOURCES.map((item) => {
+                  const selected = parseSources((form.video_sources || "").split(","));
+                  return (
+                    <label key={item.id} className="settings-check">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(item.id)}
+                        onChange={() => set("video_sources", toggleSource(selected, item.id).join(","))}
+                      />
+                      <span>{item.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <span className="settings-hint">至少保留一项；Pexels / Pixabay / Coverr 需要对应密钥</span>
+            </div>
+            <Field label="Pexels API Keys" hint="每行一个密钥，申请：https://www.pexels.com/api/">
               <textarea
                 value={form.pexels_api_keys || ""}
                 onChange={(event) => set("pexels_api_keys", event.target.value)}
                 placeholder={"key-1\nkey-2"}
               />
             </Field>
-            <Field label="Pixabay API Keys" hint="每行一个密钥">
+            <Field label="Pixabay API Keys" hint="每行一个密钥，申请：https://pixabay.com/api/docs/">
               <textarea
                 value={form.pixabay_api_keys || ""}
                 onChange={(event) => set("pixabay_api_keys", event.target.value)}
                 placeholder={"key-1\nkey-2"}
               />
             </Field>
-            <Field label="Coverr API Keys" hint="每行一个密钥">
+            <Field label="Coverr API Keys" hint="每行一个密钥，申请：https://coverr.co/developers">
               <textarea
                 value={form.coverr_api_keys || ""}
                 onChange={(event) => set("coverr_api_keys", event.target.value)}
@@ -342,9 +406,9 @@ export function SettingsPage() {
           <div className="settings-section stack" role="tabpanel">
             <div className="settings-section-head">
               <h2>文案生成 LLM</h2>
-              <p className="muted">用于脚本、导演规划与分镜提示词生成。</p>
+              <p className="muted">用于脚本、导演规划与分镜提示词生成。填写密钥后会自动探测可用模型。</p>
             </div>
-            <Field label="提供商">
+            <Field label="提供商" name="llm_provider">
               <select value={providerId} onChange={(event) => set("llm_provider", event.target.value)}>
                 {(options.data?.providers || []).map((item) => (
                   <option key={item.id} value={item.id}>
@@ -356,6 +420,7 @@ export function SettingsPage() {
             {provider?.show_api_key ? (
               <Field
                 label="API Key"
+                name={`${providerId}_api_key`}
                 hint={provider.api_key_url ? `申请地址：${provider.api_key_url}` : undefined}
               >
                 <input
@@ -368,7 +433,7 @@ export function SettingsPage() {
               </Field>
             ) : null}
             {provider?.show_base_url ? (
-              <Field label="Base URL">
+              <Field label="Base URL" name={`${providerId}_base_url`}>
                 <input
                   value={form.base_url || ""}
                   onChange={(event) => set("base_url", event.target.value)}
@@ -376,15 +441,8 @@ export function SettingsPage() {
                 />
               </Field>
             ) : null}
-            <Field label="模型名称">
-              <input
-                value={form.model_name || ""}
-                onChange={(event) => set("model_name", event.target.value)}
-                placeholder={provider?.default_model || "model-name"}
-              />
-            </Field>
             {(provider?.extra_fields || []).map((field) => (
-              <Field key={field.suffix} label={field.label}>
+              <Field key={field.suffix} label={field.label} name={`${providerId}_${field.suffix}`}>
                 <input
                   type={field.secret ? "password" : "text"}
                   autoComplete="off"
@@ -394,113 +452,59 @@ export function SettingsPage() {
                 />
               </Field>
             ))}
+            <Field
+              label="模型"
+              name={`${providerId}_model_name`}
+              hint={
+                probing
+                  ? "正在探测可用模型…"
+                  : probeError
+                    ? probeError
+                    : models.length
+                      ? `已探测到 ${models.length} 个模型`
+                      : "填写密钥后自动探测"
+              }
+            >
+              <select
+                value={form.model_name || ""}
+                onChange={(event) => set("model_name", event.target.value)}
+              >
+                <option value="">{provider?.default_model ? `默认（${provider.default_model}）` : "请选择模型"}</option>
+                {form.model_name && !models.some((item) => item.id === form.model_name) ? (
+                  <option value={form.model_name}>{form.model_name}</option>
+                ) : null}
+                {models.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
           </div>
         ) : null}
 
         {tab === "tts" ? (
           <div className="settings-section stack" role="tabpanel">
             <div className="settings-section-head">
-              <h2>TTS 语音合成服务</h2>
-              <p className="muted">按实际使用的配音服务填写；Edge TTS 无需密钥。</p>
+              <h2>TTS 语音合成</h2>
+              <p className="muted">当前仅使用小米 MiMo 合成旁白，填写 API Key 后即可在自动剪辑中选择音色。</p>
             </div>
-            <div className="settings-group">
-              <div className="settings-group-title">Azure 语音</div>
-              <div className="stack two">
-                <Field label="Speech Key">
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={form.azure_speech_key || ""}
-                    onChange={(event) => set("azure_speech_key", event.target.value)}
-                  />
-                </Field>
-                <Field label="区域">
-                  <input
-                    value={form.azure_speech_region || ""}
-                    onChange={(event) => set("azure_speech_region", event.target.value)}
-                    placeholder="eastasia"
-                  />
-                </Field>
-              </div>
-            </div>
-            <div className="settings-group">
-              <div className="settings-group-title">硅基流动</div>
-              <Field label="API Key">
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={form.siliconflow_api_key || ""}
-                  onChange={(event) => set("siliconflow_api_key", event.target.value)}
-                />
-              </Field>
-            </div>
-            <div className="settings-group">
-              <div className="settings-group-title">ElevenLabs</div>
-              <div className="stack two">
-                <Field label="API Key">
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={form.elevenlabs_api_key || ""}
-                    onChange={(event) => set("elevenlabs_api_key", event.target.value)}
-                  />
-                </Field>
-                <Field label="模型">
-                  <input
-                    value={form.elevenlabs_model_id || ""}
-                    onChange={(event) => set("elevenlabs_model_id", event.target.value)}
-                    placeholder="eleven_multilingual_v2"
-                  />
-                </Field>
-              </div>
-            </div>
-            <div className="settings-group">
-              <div className="settings-group-title">Chatterbox</div>
-              <div className="stack two">
-                <Field label="Base URL">
-                  <input
-                    value={form.chatterbox_base_url || ""}
-                    onChange={(event) => set("chatterbox_base_url", event.target.value)}
-                    placeholder="http://127.0.0.1:4123/v1"
-                  />
-                </Field>
-                <Field label="模型">
-                  <input
-                    value={form.chatterbox_model_id || ""}
-                    onChange={(event) => set("chatterbox_model_id", event.target.value)}
-                    placeholder="chatterbox"
-                  />
-                </Field>
-              </div>
-              <Field label="API Key（可选）">
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={form.chatterbox_api_key || ""}
-                  onChange={(event) => set("chatterbox_api_key", event.target.value)}
-                />
-              </Field>
-            </div>
-            <div className="settings-group">
-              <div className="settings-group-title">小米 MiMo</div>
-              <div className="stack two">
-                <Field label="API Key">
-                  <input
-                    type="password"
-                    autoComplete="off"
-                    value={form.mimo_api_key || ""}
-                    onChange={(event) => set("mimo_api_key", event.target.value)}
-                  />
-                </Field>
-                <Field label="Base URL">
-                  <input
-                    value={form.mimo_base_url || ""}
-                    onChange={(event) => set("mimo_base_url", event.target.value)}
-                    placeholder="可选，留空用默认"
-                  />
-                </Field>
-              </div>
-            </div>
+            <Field label="API Key">
+              <input
+                type="password"
+                autoComplete="off"
+                value={form.mimo_api_key || ""}
+                onChange={(event) => set("mimo_api_key", event.target.value)}
+                placeholder="MiMo API Key"
+              />
+            </Field>
+            <Field label="Base URL" hint="可选，留空使用默认接口">
+              <input
+                value={form.mimo_base_url || ""}
+                onChange={(event) => set("mimo_base_url", event.target.value)}
+                placeholder="https://api.xiaomimimo.com/v1"
+              />
+            </Field>
           </div>
         ) : null}
 

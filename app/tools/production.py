@@ -184,6 +184,15 @@ def match_library_materials(ctx: ToolContext) -> ToolResult:
                 None, "failed to prepare video materials"
             ),
         )
+    if not seedance.is_enabled():
+        return ToolResult(
+            ok=False,
+            error=(
+                "缺镜无法调用视频生成：未配置视频生产 API Key。"
+                "请在设置中填写 Pexels / Pixabay / Coverr 密钥以使用在线素材，"
+                "或配置 Seedance API Key 后再生成分镜。"
+            ),
+        )
     try:
         _auto_generate_missing(ctx, missing)
     except Exception as exc:
