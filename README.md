@@ -5,6 +5,8 @@
 [![API](https://img.shields.io/badge/API-FastAPI-009688.svg)](main.py)
 [![WebUI](https://img.shields.io/badge/WebUI-React%20%2F%20TanStack-5c6ac4.svg)](webui/src/main.tsx)
 
+![Loom 首页](docs/images/homepage.png)
+
 **Loom** 是独立的短视频自动剪辑 Agent：输入主题或文案，自动完成脚本、导演规划、配音字幕、分镜素材补齐与成片导出。
 
 主链路由 **LangGraph** 编排，业务能力拆成可替换的 **tool**；缺镜时依次走素材库、在线检索和 Seedance，不再卡在人工上传确认。
