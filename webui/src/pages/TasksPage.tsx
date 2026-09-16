@@ -36,7 +36,16 @@ export function TasksPage() {
       api.post("/api/v1/tasks/actions", payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["conversations"] });
       setSelected({});
+    },
+  });
+  const rename = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) =>
+      api.patch(`/api/v1/tasks/${id}`, { title }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      void queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
   const selectedIds = Object.entries(selected)
@@ -83,6 +92,38 @@ export function TasksPage() {
               {task.cross_post_state ? ` · ${crossPostStatusLabel(task.cross_post_state)}` : ""}
             </span>
             <span className="muted">{when(task.created_at)}</span>
+            <div className="row-actions">
+              <button
+                className="ghost"
+                type="button"
+                onClick={() => {
+                  const title = window.prompt("任务名称", task.video_subject || "");
+                  if (title?.trim()) {
+                    rename.mutate({ id: task.task_id, title: title.trim() });
+                  }
+                }}
+              >
+                重命名
+              </button>
+              <button
+                className="ghost"
+                type="button"
+                onClick={() => action.mutate({ action: "retry", task_ids: [task.task_id] })}
+              >
+                重试
+              </button>
+              <button
+                className="danger"
+                type="button"
+                onClick={() => {
+                  if (window.confirm("删除该任务？")) {
+                    action.mutate({ action: "delete", task_ids: [task.task_id] });
+                  }
+                }}
+              >
+                删除
+              </button>
+            </div>
           </div>
         ))}
         {!query.data?.tasks?.length ? <div className="muted">暂无任务</div> : null}

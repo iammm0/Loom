@@ -241,6 +241,96 @@ class TestVideoControllerTasks(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 404)
 
+    def test_rename_conversation(self):
+        store = MagicMock()
+        store.rename_conversation.return_value = {
+            "conversation_id": "c1",
+            "title": "手冲日记",
+        }
+        body = video_controller.ConversationUpdateRequest(title="手冲日记")
+        with patch.object(
+            video_controller.task_store, "get_task_store", return_value=store
+        ):
+            response = video_controller.rename_conversation(
+                self._request(), body, conversation_id="c1"
+            )
+
+        self.assertEqual(response["status"], 200)
+        self.assertEqual(response["data"]["title"], "手冲日记")
+        store.rename_conversation.assert_called_once_with("c1", "手冲日记")
+
+    def test_delete_conversation_refuses_busy_task(self):
+        store = MagicMock()
+        store.get_conversation.return_value = {
+            "conversation_id": "c1",
+            "turns": [{"task_id": "t1"}],
+        }
+        store.get_task.return_value = {"task_id": "t1", "status": "processing"}
+        with (
+            patch.object(
+                video_controller.task_store, "get_task_store", return_value=store
+            ),
+            patch.object(video_controller.tm, "is_task_busy", return_value=True),
+        ):
+            with self.assertRaises(HttpException) as raised:
+                video_controller.delete_conversation(self._request(), conversation_id="c1")
+
+        self.assertEqual(raised.exception.status_code, 409)
+        store.delete_conversation.assert_not_called()
+
+    def test_retry_conversation_retries_eligible_tasks(self):
+        store = MagicMock()
+        store.get_conversation.return_value = {
+            "conversation_id": "c1",
+            "turns": [{"task_id": "t1"}, {"task_id": "t2"}],
+        }
+        store.retry_task.side_effect = [
+            {"task_id": "t1", "status": "queued"},
+            video_controller.task_store.TaskStoreError("only failed tasks"),
+        ]
+        with (
+            patch.object(
+                video_controller.task_store, "get_task_store", return_value=store
+            ),
+            patch.object(
+                video_controller.task_store, "ensure_task_workers_started"
+            ) as ensure_workers,
+        ):
+            response = video_controller.retry_conversation(
+                self._request(), conversation_id="c1"
+            )
+
+        self.assertEqual(response["status"], 200)
+        self.assertEqual(response["data"]["results"][0]["ok"], True)
+        self.assertEqual(response["data"]["results"][1]["ok"], False)
+        ensure_workers.assert_called_once()
+
+    def test_rename_task(self):
+        store = MagicMock()
+        store.rename_task.return_value = {
+            "task_id": "t1",
+            "video_subject": "新标题",
+            "status": "completed",
+        }
+        body = video_controller.TaskUpdateRequest(title="新标题")
+        with (
+            patch.object(
+                video_controller.task_store, "get_task_store", return_value=store
+            ),
+            patch.object(
+                video_controller,
+                "_public_task_data",
+                side_effect=lambda task, include_stream=False: task,
+            ),
+        ):
+            response = video_controller.rename_task(
+                self._request(), body, task_id="t1"
+            )
+
+        self.assertEqual(response["status"], 200)
+        self.assertEqual(response["data"]["video_subject"], "新标题")
+        store.rename_task.assert_called_once_with("t1", "新标题")
+
     def test_create_task_allows_oversized_custom_script_before_queue(self):
         body = video_controller.TaskVideoRequest(
             video_subject="Long",

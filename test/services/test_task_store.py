@@ -52,6 +52,34 @@ def test_enqueue_attaches_local_tasks_to_conversation(tmp_path):
     assert listed[0]["task_count"] == 2
 
 
+def test_rename_and_delete_conversation(tmp_path):
+    store = TaskStore(tmp_path / "app.db")
+    first = store.enqueue(
+        _params("Coffee"),
+        payload={"user_prompt": "雨天窗边的手冲咖啡"},
+    )
+    conversation_id = first["conversation_id"]
+
+    renamed = store.rename_conversation(conversation_id, "手冲日记")
+    assert renamed["title"] == "手冲日记"
+    assert store.list_conversations()[0]["title"] == "手冲日记"
+
+    deleted = store.delete_conversation(conversation_id)
+    assert deleted == [first["task_id"]]
+    assert store.get_conversation(conversation_id) is None
+    assert store.get_task(first["task_id"]) is None
+    assert store.list_conversations() == []
+
+
+def test_rename_task_updates_subject_and_params(tmp_path):
+    store = TaskStore(tmp_path / "app.db")
+    task = store.enqueue(_params("Coffee"))
+
+    renamed = store.rename_task(task["task_id"], "雨天窗边")
+    assert renamed["video_subject"] == "雨天窗边"
+    assert renamed["params"]["video_subject"] == "雨天窗边"
+
+
 def test_existing_tasks_are_backfilled_into_conversations(tmp_path):
     database = tmp_path / "app.db"
     store = TaskStore(database)

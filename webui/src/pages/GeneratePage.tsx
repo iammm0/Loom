@@ -954,6 +954,7 @@ function GenerateSession({
   if (empty) {
     return (
       <section className="agent-page empty">
+        <img className="agent-hello-logo" src="/logo.png" alt="" />
         <p className="agent-hello">今天剪什么</p>
         {composer}
       </section>

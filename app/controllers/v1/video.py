@@ -22,6 +22,7 @@ from app.models.schema import (
     BatchTaskCreateRequest,
     BgmRetrieveResponse,
     BgmUploadResponse,
+    ConversationUpdateRequest,
     SupplementalSceneApprovalRequest,
     SubtitleRequest,
     TaskDeletionResponse,
@@ -32,6 +33,7 @@ from app.models.schema import (
     TaskQueryResponse,
     TaskResponse,
     TaskBulkActionRequest,
+    TaskUpdateRequest,
     TaskVideoRequest,
     VideoMaterialUploadResponse,
     VideoMaterialRetrieveResponse,
@@ -324,6 +326,98 @@ def get_conversation(
             message=f"{request_id}: conversation not found",
         )
     return utils.get_response(200, data)
+
+
+@router.patch("/conversations/{conversation_id}", summary="重命名本地自动剪辑对话")
+def rename_conversation(
+    request: Request,
+    body: ConversationUpdateRequest,
+    conversation_id: str = Path(..., description="Conversation ID"),
+):
+    request_id = base.get_task_id(request)
+    try:
+        data = task_store.get_task_store().rename_conversation(
+            conversation_id, body.title
+        )
+    except task_store.TaskStoreError as exc:
+        raise HttpException(
+            task_id=conversation_id,
+            status_code=400,
+            message=f"{request_id}: {str(exc)}",
+        ) from exc
+    if not data:
+        raise HttpException(
+            task_id=conversation_id,
+            status_code=404,
+            message=f"{request_id}: conversation not found",
+        )
+    return utils.get_response(200, data)
+
+
+@router.delete("/conversations/{conversation_id}", summary="删除本地自动剪辑对话")
+def delete_conversation(
+    request: Request,
+    conversation_id: str = Path(..., description="Conversation ID"),
+):
+    request_id = base.get_task_id(request)
+    store = task_store.get_task_store()
+    data = store.get_conversation(conversation_id)
+    if not data:
+        raise HttpException(
+            task_id=conversation_id,
+            status_code=404,
+            message=f"{request_id}: conversation not found",
+        )
+    for turn in data.get("turns") or []:
+        task = store.get_task(turn["task_id"])
+        if tm.is_task_busy(task):
+            raise HttpException(
+                task_id=turn["task_id"],
+                status_code=409,
+                message=f"{request_id}: conversation has a running task",
+            )
+    for turn in data.get("turns") or []:
+        shutil.rmtree(utils.task_dir(turn["task_id"]), ignore_errors=True)
+    deleted = store.delete_conversation(conversation_id) or []
+    return utils.get_response(
+        200,
+        {"conversation_id": conversation_id, "deleted_tasks": deleted},
+    )
+
+
+@router.post("/conversations/{conversation_id}/retry", summary="重试对话中的失败任务")
+def retry_conversation(
+    request: Request,
+    conversation_id: str = Path(..., description="Conversation ID"),
+):
+    request_id = base.get_task_id(request)
+    store = task_store.get_task_store()
+    data = store.get_conversation(conversation_id)
+    if not data:
+        raise HttpException(
+            task_id=conversation_id,
+            status_code=404,
+            message=f"{request_id}: conversation not found",
+        )
+    results = []
+    retried_any = False
+    for turn in data.get("turns") or []:
+        task_id = turn["task_id"]
+        try:
+            task = store.retry_task(task_id)
+            if task is None:
+                results.append({"task_id": task_id, "ok": False, "error": "not found"})
+                continue
+            retried_any = True
+            results.append({"task_id": task_id, "ok": True, "status": task["status"]})
+        except task_store.TaskStoreError as exc:
+            results.append({"task_id": task_id, "ok": False, "error": str(exc)})
+    if retried_any:
+        task_store.ensure_task_workers_started()
+    return utils.get_response(
+        200,
+        {"conversation_id": conversation_id, "results": results},
+    )
 
 
 @router.post("/tasks/actions", summary="Apply an action to multiple tasks")
@@ -666,6 +760,30 @@ def get_task(
     raise HttpException(
         task_id=task_id, status_code=404, message=f"{request_id}: task not found"
     )
+
+
+@router.patch("/tasks/{task_id}", summary="Rename a generated short video task")
+def rename_task(
+    request: Request,
+    body: TaskUpdateRequest,
+    task_id: str = Path(..., description="Task ID"),
+):
+    request_id = base.get_task_id(request)
+    try:
+        task = task_store.get_task_store().rename_task(task_id, body.title)
+    except task_store.TaskStoreError as exc:
+        raise HttpException(
+            task_id=task_id,
+            status_code=400,
+            message=f"{request_id}: {str(exc)}",
+        ) from exc
+    if not task:
+        raise HttpException(
+            task_id=task_id,
+            status_code=404,
+            message=f"{request_id}: task not found",
+        )
+    return utils.get_response(200, _public_task_data(task, include_stream=False))
 
 
 @router.delete(

@@ -78,14 +78,33 @@ a {
 }
 
 .app-shell.collapsed .sidebar-top {
+  flex-direction: column;
+  gap: 6px;
   padding: 0 0 8px;
   justify-content: center;
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   font-weight: 600;
   letter-spacing: -0.03em;
-  padding-left: 6px;
+  padding-left: 2px;
+}
+
+.app-shell.collapsed .brand {
+  padding-left: 0;
+  justify-content: center;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex-shrink: 0;
+  display: block;
 }
 
 .icon-btn {
@@ -136,8 +155,22 @@ a {
   padding: 4px 10px 6px;
 }
 
+.chat-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px;
+  border-radius: 10px;
+}
+
+.chat-row:hover,
+.chat-row.active {
+  background: var(--hover);
+}
+
 .chat-link {
   display: block;
+  min-width: 0;
   padding: 8px 10px;
   border-radius: 10px;
   font-size: 13px;
@@ -148,9 +181,35 @@ a {
   text-overflow: ellipsis;
 }
 
-.chat-link:hover,
-.chat-link.active {
-  background: var(--hover);
+.chat-actions {
+  display: none;
+  gap: 2px;
+  padding-right: 4px;
+}
+
+.chat-row:hover .chat-actions,
+.chat-row.active .chat-actions {
+  display: flex;
+}
+
+.chat-action {
+  min-height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chat-action:hover {
+  color: var(--text);
+  background: var(--bg);
+}
+
+.chat-action.danger:hover {
+  color: #b42318;
 }
 
 .nav-button {
@@ -358,7 +417,7 @@ tbody tr:hover {
 }
 
 .row-link {
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: auto 1fr auto auto auto;
 }
 
 .row-link.plain {
@@ -416,6 +475,14 @@ video {
   justify-content: center;
   align-items: center;
   padding: 24px;
+}
+
+.agent-hello-logo {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  margin: 0 0 16px;
+  display: block;
 }
 
 .agent-hello {

@@ -1,5 +1,9 @@
 # video-loom
 
+<p align="center">
+  <img src="docs/images/logo.png" alt="Loom" width="160" />
+</p>
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](pyproject.toml)
 [![API](https://img.shields.io/badge/API-FastAPI-009688.svg)](main.py)

@@ -371,6 +371,103 @@ class TaskStore:
             ],
         }
 
+    def rename_conversation(
+        self, conversation_id: str, title: str
+    ) -> dict[str, Any] | None:
+        conversation_id = str(conversation_id or "").strip()
+        label = str(title or "").strip()
+        if not conversation_id:
+            return None
+        if not label:
+            raise TaskStoreError("title is required")
+        label = label[:40]
+        now = _utc_now()
+        with self.connection() as connection:
+            existing = connection.execute(
+                "SELECT conversation_id FROM conversations WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchone()
+            task_count = connection.execute(
+                "SELECT COUNT(*) AS count FROM tasks WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchone()["count"]
+            if existing is None and not task_count:
+                return None
+            if existing is None:
+                connection.execute(
+                    """
+                    INSERT INTO conversations(
+                        conversation_id, title, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (conversation_id, label, now, now),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE conversations
+                    SET title = ?, updated_at = ?
+                    WHERE conversation_id = ?
+                    """,
+                    (label, now, conversation_id),
+                )
+        return self.get_conversation(conversation_id)
+
+    def delete_conversation(self, conversation_id: str) -> list[str] | None:
+        """Delete a conversation and its tasks. Caller removes task directories."""
+        conversation_id = str(conversation_id or "").strip()
+        if not conversation_id:
+            return None
+        with self.connection() as connection:
+            existing = connection.execute(
+                "SELECT conversation_id FROM conversations WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchone()
+            rows = connection.execute(
+                "SELECT task_id FROM tasks WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchall()
+            if existing is None and not rows:
+                return None
+            task_ids = [str(row["task_id"]) for row in rows]
+            for task_id in task_ids:
+                connection.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+            connection.execute(
+                "DELETE FROM conversations WHERE conversation_id = ?",
+                (conversation_id,),
+            )
+            connection.execute(
+                "DELETE FROM batches WHERE batch_id NOT IN (SELECT DISTINCT batch_id FROM tasks WHERE batch_id IS NOT NULL)"
+            )
+        return task_ids
+
+    def rename_task(self, task_id: str, title: str) -> dict[str, Any] | None:
+        label = str(title or "").strip()
+        if not label:
+            raise TaskStoreError("title is required")
+        label = label[:200]
+        now = _utc_now()
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT params_json FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            params = _json_load(row["params_json"], {})
+            if not isinstance(params, dict):
+                params = {}
+            params["video_subject"] = label
+            connection.execute(
+                """
+                UPDATE tasks
+                SET subject = ?, params_json = ?, updated_at = ?
+                WHERE task_id = ?
+                """,
+                (label, _json_dump(params), now, task_id),
+            )
+        return self.get_task(task_id)
+
     def create_batch(self, name: str = "") -> str:
         batch_id = str(uuid4())
         now = _utc_now()

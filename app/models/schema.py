@@ -262,6 +262,14 @@ class TaskIdsRequest(BaseModel):
     task_ids: List[str] = Field(min_length=1, max_length=100)
 
 
+class ConversationUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=80)
+
+
+class TaskUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
 class MaterialSegmentUpdateRequest(BaseModel):
     manual_tags: List[str] = Field(default_factory=list, max_length=30)
     description_zh: str = Field(default="", max_length=500)
